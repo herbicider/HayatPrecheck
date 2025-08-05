@@ -1,0 +1,94 @@
+{
+  "timing": {
+    "fast_polling_seconds": 0.2,
+    "trigger_check_interval_seconds": 1.0,
+    "same_prescription_wait_seconds": 3.0,
+    "max_static_sleep_seconds": 2.0,
+    "verification_wait_seconds": 0.5
+  },
+  "thresholds": {
+    "patient": 70,
+    "prescriber": 70,
+    "drug": 70,
+    "sig": 65
+  },
+  "regions": {
+    "trigger": [
+      5,
+      56,
+      144,
+      79
+    ],
+    "fields": {
+      "patient_name": {
+        "entered": [
+          91,
+          147,
+          270,
+          165
+        ],
+        "source": [
+          518,
+          400,
+          840,
+          419
+        ],
+        "score_fn": "token_sort_ratio",
+        "threshold_key": "patient"
+      },
+      "prescriber_name": {
+        "entered": [
+          91,
+          222,
+          290,
+          239
+        ],
+        "source": [
+          516,
+          276,
+          961,
+          303
+        ],
+        "score_fn": "token_sort_ratio",
+        "threshold_key": "prescriber"
+      },
+      "drug_name": {
+        "entered": [
+          90,
+          397,
+          311,
+          416
+        ],
+        "source": [
+          527,
+          545,
+          958,
+          562
+        ],
+        "score_fn": "ratio",
+        "threshold_key": "drug"
+      },
+      "direction_sig": {
+        "entered": [
+          21,
+          744,
+          391,
+          766
+        ],
+        "source": [
+          530,
+          613,
+          989,
+          636
+        ],
+        "score_fn": "ratio",
+        "threshold_key": "sig"
+      }
+    }
+  },
+  "automation": {
+    "send_key_on_all_match": true,
+    "key_on_all_match": "f12",
+    "key_delay_seconds": 0.5
+  }
+}

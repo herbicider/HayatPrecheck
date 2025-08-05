@@ -1,0 +1,8 @@
+pyautogui
+pillow
+pytesseract
+rapidfuzz
+python-Levenshtein
+# GUI dependencies for coordinate_adjuster.py
+# Note: tkinter comes with most Python installations
+# If tkinter is not available, use: brew install python-tk
