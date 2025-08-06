@@ -14,72 +14,72 @@
   },
   "regions": {
     "trigger": [
-      5,
-      56,
-      144,
-      79
+      8,
+      273,
+      219,
+      292
     ],
     "fields": {
       "patient_name": {
         "entered": [
-          91,
-          147,
-          270,
-          165
+          141,
+          411,
+          430,
+          440
         ],
         "source": [
-          518,
-          400,
-          840,
-          419
+          828,
+          812,
+          1509,
+          848
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "patient"
       },
       "prescriber_name": {
         "entered": [
-          91,
-          222,
-          290,
-          239
+          144,
+          531,
+          463,
+          559
         ],
         "source": [
-          516,
-          276,
-          961,
-          303
+          821,
+          624,
+          1468,
+          655
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "prescriber"
       },
       "drug_name": {
         "entered": [
-          90,
-          397,
-          311,
-          416
+          143,
+          812,
+          490,
+          843
         ],
         "source": [
-          527,
-          545,
-          958,
-          562
+          839,
+          1035,
+          1528,
+          1068
         ],
         "score_fn": "ratio",
         "threshold_key": "drug"
       },
       "direction_sig": {
         "entered": [
-          21,
-          744,
-          391,
-          766
+          36,
+          1499,
+          615,
+          1533
         ],
         "source": [
-          530,
-          613,
-          989,
-          636
+          839,
+          1156,
+          1821,
+          1198
         ],
         "score_fn": "ratio",
         "threshold_key": "sig"

@@ -39,6 +39,7 @@ class VerificationAgent:
         self.overlay_root = None  # Store reference to active overlay
         self.last_trigger_time = 0  # Track when trigger was last processed to prevent rapid re-triggering
         self.overlay_created_time = 0  # Track when overlay was created
+        self.should_stop = False  # Flag to stop the monitoring loop
         self._setup_tesseract()
 
     def _log_rx_verification(self, rx_number: str, results: Dict[str, Any]):
@@ -697,6 +698,12 @@ class VerificationAgent:
         finally:
             self.verification_in_progress = False
 
+    def stop(self):
+        """Stop the monitoring loop gracefully"""
+        print("Stop requested - monitoring will terminate after current iteration...")
+        self.should_stop = True
+        self._close_overlay()  # Clean up any active overlay
+
     def run(self):
         """Main loop to monitor for the trigger text with improved responsiveness."""
         print("Starting to monitor for 'pre-check rx' text...")
@@ -709,6 +716,12 @@ class VerificationAgent:
         
         while True:
             try:
+                # Check if we should stop the monitoring
+                if self.should_stop:
+                    print("Stopping monitoring as requested...")
+                    self._close_overlay()  # Clean up overlay before stopping
+                    break
+                    
                 current_time = time.time()
                 screenshot = pyautogui.screenshot()
                 
