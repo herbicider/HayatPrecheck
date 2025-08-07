@@ -7,79 +7,79 @@
     "verification_wait_seconds": 0.5
   },
   "thresholds": {
-    "patient": 70,
-    "prescriber": 70,
+    "patient": 75,
+    "prescriber": 75,
     "drug": 70,
-    "sig": 65
+    "sig": 70
   },
   "regions": {
     "trigger": [
-      8,
-      273,
-      219,
-      292
+      13,
+      276,
+      229,
+      302
     ],
     "fields": {
       "patient_name": {
         "entered": [
-          141,
-          411,
-          430,
-          440
+          144,
+          416,
+          437,
+          446
         ],
         "source": [
-          828,
-          812,
-          1509,
-          848
+          837,
+          831,
+          1561,
+          856
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "patient"
       },
       "prescriber_name": {
         "entered": [
-          144,
-          531,
-          463,
-          559
+          147,
+          540,
+          464,
+          566
         ],
         "source": [
-          821,
-          624,
-          1468,
-          655
+          837,
+          637,
+          1528,
+          661
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "prescriber"
       },
       "drug_name": {
         "entered": [
-          143,
-          812,
-          490,
-          843
+          150,
+          820,
+          498,
+          850
         ],
         "source": [
-          839,
-          1035,
-          1528,
-          1068
+          852,
+          1063,
+          1853,
+          1096
         ],
         "score_fn": "ratio",
         "threshold_key": "drug"
       },
       "direction_sig": {
         "entered": [
-          36,
-          1499,
-          615,
-          1533
+          40,
+          1504,
+          624,
+          1534
         ],
         "source": [
-          839,
-          1156,
-          1821,
-          1198
+          858,
+          1180,
+          1855,
+          1218
         ],
         "score_fn": "ratio",
         "threshold_key": "sig"

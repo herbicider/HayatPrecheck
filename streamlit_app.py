@@ -21,17 +21,10 @@ from datetime import datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
 from PIL import Image, ImageDraw
-import pyautogui
 import threading
 import subprocess
 import sys
 from typing import Dict, Any, List, Optional, Tuple
-
-# Import pytesseract at the top level
-try:
-    import pytesseract
-except ImportError:
-    pytesseract = None
 
 class SimplePharmacyApp:
     def __init__(self):
@@ -374,9 +367,9 @@ class SimplePharmacyApp:
         status_text = "Running" if st.session_state.verification_running else "Stopped"
         st.markdown(f"**Status:** {status_color} {status_text}")
         
-        # Live OCR Display
+        # Live Terminal Output Display
         if st.session_state.verification_running:
-            self.show_live_ocr_display()
+            self.show_live_terminal_output()
         
         # Log display (smaller section now)
         self.show_log_section()
@@ -442,153 +435,108 @@ class SimplePharmacyApp:
             except Exception as e:
                 st.error(f"❌ Failed to save automation settings: {e}")
 
-    def show_live_ocr_display(self):
-        """Display live OCR results and scores in debug format"""
-        st.subheader("🔍 Live OCR Debug Results")
+    def show_live_terminal_output(self):
+        """Display live terminal output from the verification process"""
+        st.subheader("�️ Live Terminal Output")
         
-        # Try to get current screenshot and perform OCR
+        # Check if verification is actually running
+        if not st.session_state.verification_running:
+            st.warning("❌ Verification not running - start monitoring to see terminal output")
+            return
+        
+        # Add refresh controls
+        col1, col2, col3 = st.columns([1, 1, 2])
+        with col1:
+            if st.button("🔄 Refresh Output", key="refresh_terminal"):
+                st.rerun()
+        
+        with col2:
+            auto_refresh = st.checkbox("🔄 Auto-refresh (3s)", key="auto_refresh_terminal")
+        
+        with col3:
+            show_lines = st.selectbox("Show lines:", [50, 100, 200, 500], index=1, key="terminal_lines")
+        
+        # Auto-refresh functionality
+        if auto_refresh:
+            time.sleep(3)
+            st.rerun()
+        
+        # Read the log file for live output
         try:
-            try:
-                screenshot = pyautogui.screenshot()
-            except ImportError:
-                st.error("❌ pyautogui not available - please install it for live monitoring")
-                return
-            
-            if self.config and 'regions' in self.config:
-                regions = self.config['regions']
+            if os.path.exists(self.log_file):
+                with open(self.log_file, 'r', encoding='utf-8') as f:
+                    log_content = f.read()
                 
-                # Check if we have the nested structure (regions.fields)
-                if 'fields' in regions:
-                    fields = regions['fields']
+                if log_content.strip():
+                    # Get the last N lines
+                    lines = log_content.strip().split('\n')
+                    recent_lines = lines[-show_lines:] if len(lines) > show_lines else lines
                     
-                    # Create a text area to display debug output
-                    debug_output = []
+                    # Display with syntax highlighting for better readability
+                    terminal_output = '\n'.join(recent_lines)
                     
-                    for field_name, field_config in fields.items():
-                        if 'entered' in field_config and 'source' in field_config:
-                            try:
-                                # Get OCR text from both regions
-                                entered_coords = field_config['entered']
-                                source_coords = field_config['source']
-                                
-                                entered_text = self.get_ocr_text(screenshot, entered_coords)
-                                source_text = self.get_ocr_text(screenshot, source_coords)
-                                
-                                # Get the scoring configuration
-                                score_fn = field_config.get('score_fn', 'ratio')
-                                threshold_key = field_config.get('threshold_key', 'patient')
-                                threshold = self.config.get('thresholds', {}).get(threshold_key, 65)
-                                
-                                # Calculate score and match
-                                score, match, cleaned_entered, cleaned_source = self.calculate_field_score(
-                                    entered_text, source_text, score_fn, threshold
-                                )
-                                
-                                # Format debug output
-                                debug_section = self.format_debug_output(
-                                    field_name.upper(), entered_text, source_text, 
-                                    cleaned_entered, cleaned_source, score, threshold, match
-                                )
-                                debug_output.append(debug_section)
-                                
-                            except Exception as e:
-                                debug_output.append(f"=== DEBUG {field_name.upper()} ===\nError: {e}\n{'='*40}\n")
-                    
-                    # Display the debug output
-                    if debug_output:
-                        combined_output = "\n".join(debug_output)
-                        st.text_area("Debug Output", combined_output, height=600, key="debug_output")
+                    # Create a container for the terminal output
+                    with st.container():
+                        st.markdown("**� Real-time Verification Output:**")
                         
-                        # Add auto-refresh option
-                        if st.button("🔄 Refresh OCR Debug"):
-                            st.rerun()
-                    else:
-                        st.warning("No field data available for debug display")
+                        # Show the terminal-like output
+                        st.text_area(
+                            "Terminal Output",
+                            terminal_output,
+                            height=500,
+                            key=f"terminal_output_{int(time.time())}"
+                        )
+                        
+                        # Show status info
+                        total_lines = len(lines)
+                        st.caption(f"📈 Showing last {len(recent_lines)} of {total_lines} total lines | Last updated: {datetime.now().strftime('%H:%M:%S')}")
+                        
+                        # Add scroll to bottom hint
+                        if len(lines) > show_lines:
+                            st.info(f"💡 Showing most recent {show_lines} lines. Increase the line count to see more history.")
                 else:
-                    st.warning("Configuration does not have the expected fields structure")
+                    st.info("🕐 Waiting for verification output... Make sure monitoring is active.")
+                    
             else:
-                st.warning("No configuration available for live monitoring")
+                st.warning("📄 No log file found. The verification process may not have started yet.")
+                st.info("💡 Click 'Start Monitoring' to begin capturing terminal output.")
                 
         except Exception as e:
-            st.error(f"❌ Live OCR debug failed: {e}")
-
-    def get_ocr_text(self, screenshot, coords):
-        """Extract OCR text from a region"""
-        try:
-            x1, y1, x2, y2 = coords
-            cropped = screenshot.crop((x1, y1, x2, y2))
-            
-            if pytesseract:
-                return pytesseract.image_to_string(cropped).strip()
-            else:
-                return "[OCR not available]"
-        except Exception as e:
-            return f"[OCR Error: {e}]"
-
-    def calculate_field_score(self, entered_text, source_text, score_fn, threshold):
-        """Calculate score between two texts using the specified scoring function"""
-        try:
-            from rapidfuzz import fuzz
-            
-            # Clean the texts (basic cleaning)
-            cleaned_entered = self.clean_text_for_scoring(entered_text)
-            cleaned_source = self.clean_text_for_scoring(source_text)
-            
-            # Get the scoring function
-            scorer = getattr(fuzz, score_fn, fuzz.ratio)
-            score = scorer(cleaned_entered, cleaned_source)
-            
-            # Determine match
-            match = score >= threshold
-            
-            return score, match, cleaned_entered, cleaned_source
-            
-        except ImportError:
-            # Fallback to basic string comparison if rapidfuzz not available
-            cleaned_entered = self.clean_text_for_scoring(entered_text)
-            cleaned_source = self.clean_text_for_scoring(source_text)
-            
-            # Simple similarity calculation
-            if cleaned_entered == cleaned_source:
-                score = 100.0
-            elif cleaned_entered in cleaned_source or cleaned_source in cleaned_entered:
-                score = 80.0
-            else:
-                score = 0.0
+            st.error(f"❌ Error reading terminal output: {e}")
+            st.info("This might be a temporary file access issue. Try refreshing.")
+        
+        # Add a section for quick stats if there's content
+        if os.path.exists(self.log_file):
+            try:
+                with open(self.log_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
                 
-            match = score >= threshold
-            return score, match, cleaned_entered, cleaned_source
-            
-        except Exception as e:
-            return 0.0, False, f"[Error: {e}]", f"[Error: {e}]"
-
-    def clean_text_for_scoring(self, text):
-        """Basic text cleaning for scoring (simplified version)"""
-        if not text:
-            return ""
-        
-        # Convert to lowercase
-        cleaned = text.lower().strip()
-        
-        # Remove common OCR artifacts
-        cleaned = cleaned.replace('_', ' ')
-        
-        # Basic space normalization
-        cleaned = re.sub(r'\s+', ' ', cleaned)
-        
-        return cleaned.strip()
-
-    def format_debug_output(self, field_name, raw_entered, raw_source, cleaned_entered, cleaned_source, score, threshold, match):
-        """Format debug output similar to the console output"""
-        match_status = "True" if match else "False"
-        
-        return f"""=== DEBUG {field_name} ===
-Raw LEFT (entered): '{raw_entered}'
-Raw RIGHT (source): '{raw_source}'
-Cleaned LEFT: '{cleaned_entered}'
-Cleaned RIGHT: '{cleaned_source}'
-Score: {score:.2f} | Threshold: {threshold} | Match: {match_status}
-{'='*40}"""
+                if content.strip():
+                    # Quick stats
+                    lines = content.strip().split('\n')
+                    
+                    # Count different types of log entries
+                    debug_count = sum(1 for line in lines if 'DEBUG' in line.upper())
+                    match_count = sum(1 for line in lines if 'Match: True' in line)
+                    error_count = sum(1 for line in lines if 'ERROR' in line.upper() or 'Error:' in line)
+                    
+                    # Show stats in columns
+                    stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+                    
+                    with stat_col1:
+                        st.metric("📊 Total Lines", len(lines))
+                    
+                    with stat_col2:
+                        st.metric("✅ Matches Found", match_count)
+                    
+                    with stat_col3:
+                        st.metric("🔍 Debug Entries", debug_count)
+                    
+                    with stat_col4:
+                        st.metric("❌ Errors", error_count)
+                        
+            except Exception:
+                pass  # Skip stats if there's an issue
 
     def show_log_section(self):
         """Display log section"""

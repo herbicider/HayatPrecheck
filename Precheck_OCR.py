@@ -40,6 +40,11 @@ class VerificationAgent:
         self.last_trigger_time = 0  # Track when trigger was last processed to prevent rapid re-triggering
         self.overlay_created_time = 0  # Track when overlay was created
         self.should_stop = False  # Flag to stop the monitoring loop
+        
+        # Cache abbreviations for efficiency (load once at startup)
+        self._abbreviations = self._load_abbreviations()
+        logging.info(f"Cached {len(self._abbreviations)} abbreviations for efficient matching")
+        
         self._setup_tesseract()
 
     def _log_rx_verification(self, rx_number: str, results: Dict[str, Any]):
@@ -193,8 +198,268 @@ class VerificationAgent:
             else:
                 logging.warning("Tesseract executable not found at expected path. Using system default.")
 
+    def _load_abbreviations(self) -> Dict[str, str]:
+        """
+        Loads pharmaceutical abbreviations from external JSON file for easy maintenance.
+        This method is called once during initialization to avoid repeated file I/O.
+        
+        The abbreviations are loaded from 'abbreviations.json' in the same directory.
+        If the file doesn't exist, returns an empty dictionary and logs a warning.
+        
+        The JSON file format should be:
+        {
+            " abbr ": " full expansion ",
+            " another_abbr ": " another expansion "
+        }
+        """
+        abbreviations = {}
+        
+        # Load abbreviations from external JSON file
+        try:
+            abbrev_file = os.path.join(os.path.dirname(__file__), "abbreviations.json")
+            if os.path.exists(abbrev_file):
+                with open(abbrev_file, 'r', encoding='utf-8') as f:
+                    loaded_abbreviations = json.load(f)
+                    # Filter out comment keys (they start with "//")
+                    abbreviations = {k: v for k, v in loaded_abbreviations.items() if not k.startswith("//")}
+                    logging.info(f"Loaded {len(abbreviations)} abbreviations from {abbrev_file}")
+            else:
+                logging.warning(f"Abbreviations file not found: {abbrev_file}")
+                logging.warning("Text cleaning will work with limited abbreviation support")
+        except Exception as e:
+            logging.error(f"Could not load abbreviations from file: {e}")
+            logging.warning("Text cleaning will work with limited abbreviation support")
+        
+        return abbreviations
+        # Default comprehensive abbreviations
+
+
+
+    def reload_abbreviations(self):
+        """
+        Reload abbreviations from file without restarting the application.
+        Useful for testing new abbreviations or when the JSON file is updated.
+        """
+        try:
+            self._abbreviations = self._load_abbreviations()
+            logging.info("Abbreviations reloaded successfully")
+        except Exception as e:
+            logging.error(f"Error reloading abbreviations: {e}")
+
+    def get_loaded_abbreviations_count(self) -> int:
+        """Return the number of loaded abbreviations for debugging."""
+        return len(self._abbreviations)
+
+    def _clean_drug_name(self, text: str) -> str:
+        """
+        Specialized cleaning for drug names with enhanced semantic matching.
+        PRESERVES dosage information since it's critical for identification.
+        Different dosages are considered different drugs (metformin 500mg ≠ metformin 1000mg).
+        Equivalent salt forms are normalized (metformin HCl = metformin hydrochloride).
+        Different salt forms are maintained as distinct (metoprolol tartrate ≠ metoprolol succinate).
+        """
+        if not text:
+            return ""
+        
+        # Start with basic cleaning but preserve numbers and units
+        text = text.lower().strip()
+        
+        # Remove brand names in parentheses (e.g., "Metformin (Glucophage)" -> "Metformin")
+        import re
+        text = re.sub(r'\s*\([^)]*\)', '', text)
+        
+        # Get comprehensive pharmaceutical abbreviations (cached at startup)
+        abbreviations = self._abbreviations
+        
+        # Apply abbreviation expansions
+        # Add spaces around text to ensure word boundary matching
+        text_with_spaces = f" {text} "
+        for abbr, full in abbreviations.items():
+            text_with_spaces = text_with_spaces.replace(abbr, full)
+        
+        # Remove the extra spaces we added
+        text = text_with_spaces.strip()
+        
+        # Remove most punctuation BUT preserve numbers, decimal points in doses, and % signs
+        # This allows "10.5mg" and "2.5%" to remain intact
+        for char in string.punctuation:
+            if char not in ['.', '%']:  # Keep dots for decimals and % for percentages
+                text = text.replace(char, ' ')
+        
+        # Clean up extra spaces
+        text = ' '.join(text.split())
+        
+        # Normalize equivalent salt forms - but keep distinct salts separate
+        # Only normalize specific cases where the salts are pharmacologically equivalent
+        equivalent_salt_forms = {
+            'hydrochloride': 'hcl',
+            'hydrobromide': 'hbr',
+            'hcl': 'hcl',           # Already normalized, keep it
+            'hydrochloride': 'hcl',  # Normalize this variant
+            'hydrochlor': 'hcl',    # Normalize this abbreviation too
+        }
+        
+        # Apply equivalent salt normalization carefully
+        for full_salt, abbr_salt in equivalent_salt_forms.items():
+            # Only replace exact salt form matches surrounded by spaces
+            text = re.sub(rf'\b{full_salt}\b', abbr_salt, text)
+        
+        # Do NOT normalize distinct salts like tartrate/succinate since they're different drugs
+        
+        # Standardize spacing in dose information
+        # This ensures "metformin500mg" becomes "metformin 500mg" for better matching
+        text = re.sub(r'(\d+)([a-z]+)', r'\1 \2', text)  # "500mg" -> "500 mg"
+        text = re.sub(r'([a-z])(\d+)', r'\1 \2', text)   # "metformin500" -> "metformin 500"
+        
+        # Final spacing cleanup
+        text = ' '.join(text.split())
+        
+        return text
+
+    def _enhanced_drug_name_match(self, entered_text: str, source_text: str, threshold: int = 80) -> Tuple[float, bool]:
+        """
+        Enhanced drug name matching with semantic awareness.
+        Considers dosage information critical - different dosages are different drugs.
+        Different salt forms (tartrate vs succinate) are also considered different drugs.
+        
+        Args:
+            entered_text: Text from the entered field
+            source_text: Text from the source field  
+            threshold: Similarity threshold for matching (0-100)
+            
+        Returns:
+            Tuple of (score, is_match) where score is 0-100 and is_match is boolean
+        """
+        # Clean both texts with drug-specific cleaning that preserves dosages
+        clean_entered = self._clean_drug_name(entered_text)
+        clean_source = self._clean_drug_name(source_text)
+        
+        if not clean_entered or not clean_source:
+            return 0.0, False
+        
+        # Check if they have different dosages by extracting and comparing dose information
+        import re
+        
+        # Extract dosage information from both strings
+        entered_dosages = re.findall(r'\b\d+(\.\d+)?\s*(mg|mcg|ug|g|ml|l|units?|iu|%)\b', clean_entered)
+        source_dosages = re.findall(r'\b\d+(\.\d+)?\s*(mg|mcg|ug|g|ml|l|units?|iu|%)\b', clean_source)
+        
+        # If both have dosages but they're different, consider it a mismatch
+        if entered_dosages and source_dosages and entered_dosages != source_dosages:
+            print(f"Dosage mismatch detected: {entered_dosages} vs {source_dosages}")
+            return 50.0, False  # Return a mediocre score to indicate partial match but dosage difference
+        
+        # Check for different salt forms that should be considered different drugs
+        distinct_salt_pairs = [
+            ('tartrate', 'succinate'),  # metoprolol tartrate vs succinate are different
+            ('ir', 'er'),               # immediate release vs extended release
+            ('ir', 'sr'),               # immediate release vs sustained release
+            ('ir', 'xr'),               # immediate release vs extended release
+            ('er', 'sr'),               # different extended release formulations
+            ('er', 'xr'),               # different extended release formulations
+        ]
+        
+        # Check if they have different distinct salt forms
+        for salt1, salt2 in distinct_salt_pairs:
+            if ((salt1 in clean_entered and salt2 in clean_source) or 
+                (salt2 in clean_entered and salt1 in clean_source)):
+                print(f"Different salt forms detected: {salt1} vs {salt2}")
+                return 40.0, False  # Return a low score to indicate different drugs
+        
+        # Try multiple matching strategies and take the best score
+        scores = []
+        
+        # 1. Direct fuzzy matching - most important for exact matches
+        scores.append(fuzz.ratio(clean_entered, clean_source) * 1.2)  # Weighted higher
+        
+        # 2. Token sort ratio (handles word order differences)
+        scores.append(fuzz.token_sort_ratio(clean_entered, clean_source))
+        
+        # 3. Token set ratio (handles extra words) - weighted lower to avoid false matches
+        scores.append(fuzz.token_set_ratio(clean_entered, clean_source) * 0.8)
+        
+        # 4. Partial ratio (handles one string being a subset of another) - weighted lower
+        scores.append(fuzz.partial_ratio(clean_entered, clean_source) * 0.7)
+        
+        # Take the best score but cap at 100
+        best_score = min(100, max(scores))
+        is_match = best_score >= threshold
+        
+        return best_score, is_match
+
+    def _calculate_drug_name_score(self, entered_text: str, source_text: str) -> float:
+        """Enhanced drug name matching with multiple strategies and better validation."""
+        if not entered_text or not source_text:
+            return 0.0
+        
+        # Clean and normalize both texts
+        entered_clean = self._clean_text(entered_text).lower().strip()
+        source_clean = self._clean_text(source_text).lower().strip()
+        
+        if not entered_clean or not source_clean:
+            return 0.0
+        
+        # Strategy 1: Direct fuzzy matching
+        direct_score = fuzz.ratio(entered_clean, source_clean)
+        
+        # Strategy 2: Token sort ratio (handles word order differences)
+        token_sort_score = fuzz.token_sort_ratio(entered_clean, source_clean)
+        
+        # Strategy 3: Token set ratio (handles extra words) - but be more careful
+        token_set_score = fuzz.token_set_ratio(entered_clean, source_clean)
+        
+        # Strategy 4: Partial ratio (handles subsets)
+        partial_score = fuzz.partial_ratio(entered_clean, source_clean)
+        
+        # Strategy 5: Core drug name matching (first significant word)
+        entered_words = [w for w in entered_clean.split() if len(w) > 2]
+        source_words = [w for w in source_clean.split() if len(w) > 2]
+        
+        core_score = 0
+        if entered_words and source_words:
+            core_score = fuzz.ratio(entered_words[0], source_words[0])
+        
+        # Strategy 6: Cross-word matching (any word to any word) - but require multiple word matches
+        cross_score = 0
+        if entered_words and source_words:
+            word_matches = []
+            for e_word in entered_words:
+                for s_word in source_words:
+                    word_score = fuzz.ratio(e_word, s_word)
+                    if word_score > 80:  # Only consider strong word matches
+                        word_matches.append(word_score)
+            
+            # Require at least 2 strong word matches or 1 perfect match for high scores
+            if len(word_matches) >= 2:
+                cross_score = sum(word_matches) / len(word_matches)
+            elif word_matches and max(word_matches) >= 95:
+                cross_score = max(word_matches)
+            else:
+                cross_score = max(word_matches) if word_matches else 0
+                # Penalize single word matches
+                if len(word_matches) == 1 and cross_score < 95:
+                    cross_score = min(cross_score, 75)
+        
+        # Use weighted average instead of just max to prevent single-word false positives
+        scores = [direct_score, token_sort_score, partial_score, core_score]
+        
+        # Only include token_set_score and cross_score if they're not outliers
+        if token_set_score <= max(scores) + 20:  # Not too much higher than other scores
+            scores.append(token_set_score)
+        
+        if cross_score <= max(scores) + 20:  # Not too much higher than other scores
+            scores.append(cross_score)
+        
+        # Use weighted average favoring direct and token sort scores
+        final_score = (direct_score * 2 + token_sort_score * 2 + sum(scores)) / (4 + len(scores))
+        
+        return final_score
+
     def _clean_text(self, text: str) -> str:
-        """Normalizes text by lowercasing, expanding abbreviations, and removing punctuation."""
+        """
+        Normalizes text by lowercasing, expanding abbreviations, and removing punctuation.
+        Uses cached pharmaceutical abbreviations for efficient processing.
+        """
         if not text:
             return ""
         text = text.lower().strip()
@@ -203,17 +468,17 @@ class VerificationAgent:
         import re
         text = re.sub(r'\s*\([^)]*\)', '', text)
         
-        # More comprehensive list of pharmacy abbreviations
-        abbreviations = {
-            " po ": " by mouth ", " qd": " daily", " od ": " once daily ", " bid": " twice daily",
-            " tid": " three times daily", " qid": " four times daily", " ac ": " before meals ",
-            " pc ": " after meals ", " hs ": " at bedtime ", " prn": " as needed", " ud ": " as directed ",
-            " tab ": " tablet ", " cap ": " capsule ", " gtt ": " drop ", " sol ": " solution ",
-            " supp ": " suppository ", " ung ": " ointment ", " disp ": " dispense ",
-            " sig ": " directions ", " rx ": " prescription "
-        }
+        # Get comprehensive pharmaceutical abbreviations (cached at startup)
+        abbreviations = self._abbreviations
+        
+        # Apply abbreviation expansions
+        # Add spaces around text to ensure word boundary matching
+        text_with_spaces = f" {text} "
         for abbr, full in abbreviations.items():
-            text = text.replace(abbr, full)
+            text_with_spaces = text_with_spaces.replace(abbr, full)
+        
+        # Remove the extra spaces we added
+        text = text_with_spaces.strip()
         
         # Remove punctuation and consolidate whitespace
         text = text.translate(str.maketrans('', '', string.punctuation))
@@ -223,7 +488,7 @@ class VerificationAgent:
     def _normalize_name(self, name: str, is_entered_field: bool = False) -> str:
         """
         Normalizes names to handle format differences and medical titles.
-        Extracts only first and last names, skipping middle names for better matching.
+        PRESERVES the original name format and order - 'John Smith' is NOT the same as 'Smith John'.
         
         Args:
             name: The name to normalize
@@ -231,7 +496,7 @@ class VerificationAgent:
                             False if from right side (source field)
         
         Returns:
-            Normalized name in "FirstName LastName" format without titles or middle names
+            Normalized name preserving the original format and order
         """
         if not name:
             return ""
@@ -246,7 +511,7 @@ class VerificationAgent:
             'DMD', 'D.M.D.', 'DVM', 'D.V.M.', 'PhD', 'Ph.D.', 'RN', 'R.N.',
             'LPN', 'L.P.N.', 'CNP', 'C.N.P.', 'FNP', 'F.N.P.', 'ANP', 'A.N.P.',
             'Dr.', 'Dr', 'Doctor', 'DNP', 'D.N.P.', 'MSN', 'M.S.N.', 'BSN', 'B.S.N.',
-            'CRNA', 'C.R.N.A.', 'APRN', 'A.P.R.N.'
+            'CRNA', 'C.R.N.A.', 'APRN', 'A.P.R.N.', 'DPM', 'D.P.M.', 'PMHNP', 'P.M.H.N.P.',
         ]
         
         # Create a pattern to remove titles (with word boundaries)
@@ -273,111 +538,31 @@ class VerificationAgent:
         clean_name = re.sub(r'\s*,\s*$', '', clean_name)  # Remove trailing comma
         clean_name = ' '.join(clean_name.strip().split())
         
-        # Extract first and last names only (skip middle names)
-        if is_entered_field:
-            # Left side format: "LastName, FirstName [MiddleName]" or "LastName. FirstName [of/etc]"
-            # Handle both comma and period separators
-            parts = []
-            separator_found = False
+        # Remove common suffixes like "of", "jr", "sr", etc. but preserve the overall format
+        clean_name = re.sub(r'\s+(of|jr|sr|iii|ii|iv)$', '', clean_name, flags=re.IGNORECASE)
+        
+        # Handle OCR artifacts but maintain original formatting
+        clean_name = clean_name.replace('|', ' ')  # Remove pipe separators
+        clean_name = clean_name.replace('_', ' ')  # Remove underscores (OCR artifacts)
+        clean_name = ' '.join(clean_name.split())  # Clean up extra spaces
+        
+        # Handle multiple prescribers separated by "/"
+        if '/' in clean_name:
+            prescribers = clean_name.split('/')
+            processed_prescribers = []
             
-            if ',' in clean_name:
-                parts = clean_name.split(',', 1)
-                separator_found = True
-            elif '.' in clean_name:
-                parts = clean_name.split('.', 1)
-                separator_found = True
+            for prescriber in prescribers:
+                prescriber = prescriber.strip()
+                if prescriber:
+                    # Apply common cleaning but preserve the format
+                    processed_prescribers.append(prescriber.lower())
             
-            if separator_found and len(parts) == 2:
-                last_name = parts[0].strip()
-                first_part = parts[1].strip()
-                
-                # Remove common suffixes like "of", "jr", "sr", etc.
-                import re
-                first_part = re.sub(r'\s+(of|jr|sr|iii|ii|iv)$', '', first_part, flags=re.IGNORECASE)
-                
-                # Extract only the first word as the first name (skip middle names)
-                first_name = first_part.split()[0] if first_part else ""
-                if first_name and last_name:
-                    return f"{first_name} {last_name}".lower()
-            
-            # If no separator found, try to extract first and last from space-separated format
-            name_parts = clean_name.split()
-            # Filter out common suffixes
-            name_parts = [part for part in name_parts if part.lower() not in ['of', 'jr', 'sr', 'iii', 'ii', 'iv']]
-            
-            if len(name_parts) >= 2:
-                # Assume first word is first name, last word is last name
-                return f"{name_parts[0]} {name_parts[-1]}".lower()
-            return clean_name.lower()
-        else:
-            # Right side format: "FirstName [MiddleName] LastName"
-            # Handle multiple prescribers separated by "/"
-            if '/' in clean_name:
-                # Split by "/" and process each prescriber separately
-                prescribers = clean_name.split('/')
-                processed_prescribers = []
-                
-                for prescriber in prescribers:
-                    prescriber = prescriber.strip()
-                    if prescriber:
-                        # Apply the same cleaning logic to each prescriber individually
-                        prescriber = prescriber.replace('|', ' ')  # Remove pipe separators
-                        prescriber = prescriber.replace('_', ' ')  # Remove underscores (OCR artifacts)
-                        prescriber = ' '.join(prescriber.split())  # Clean up extra spaces
-                        
-                        name_parts = prescriber.split()
-                        # Filter out empty parts, single characters, and any remaining titles
-                        filtered_parts = []
-                        common_titles = ['dr', 'md', 'do', 'np', 'pa', 'dnp', 'phd', 'rn', 'lpn', 'cnp', 'fnp', 'anp', 'aprn', 'crna', 'msn', 'bsn']
-                        
-                        for part in name_parts:
-                            # Skip if it's too short, or if it's a title, or if it ends with a period (likely title)
-                            if (len(part) > 1 and 
-                                part.lower().rstrip('.') not in common_titles and 
-                                (not part.endswith('.') or len(part) > 3)):  # Allow longer words even with periods
-                                filtered_parts.append(part)
-                        
-                        if len(filtered_parts) >= 2:
-                            # Take first word as first name, last word as last name (skip middle)
-                            first_name = filtered_parts[0]
-                            last_name = filtered_parts[-1]
-                            processed_prescribers.append(f"{first_name} {last_name}".lower())
-                        elif len(filtered_parts) == 1:
-                            # Only one name part - use as is
-                            processed_prescribers.append(filtered_parts[0].lower())
-                
-                # Return all prescribers joined by " / " for later processing
-                if processed_prescribers:
-                    return " / ".join(processed_prescribers)
-                else:
-                    return clean_name.lower()
-            else:
-                # Single prescriber - use existing logic
-                clean_name = clean_name.replace('|', ' ')  # Remove pipe separators
-                clean_name = clean_name.replace('_', ' ')  # Remove underscores (OCR artifacts)
-                clean_name = ' '.join(clean_name.split())  # Clean up extra spaces
-                
-                name_parts = clean_name.split()
-                # Filter out empty parts, single characters, and any remaining titles
-                filtered_parts = []
-                common_titles = ['dr', 'md', 'do', 'np', 'pa', 'dnp', 'phd', 'rn', 'lpn', 'cnp', 'fnp', 'anp', 'aprn', 'crna', 'msn', 'bsn']
-                
-                for part in name_parts:
-                    # Skip if it's too short, or if it's a title, or if it ends with a period (likely title)
-                    if (len(part) > 1 and 
-                        part.lower().rstrip('.') not in common_titles and 
-                        (not part.endswith('.') or len(part) > 3)):  # Allow longer words even with periods
-                        filtered_parts.append(part)
-                
-                if len(filtered_parts) >= 2:
-                    # Take first word as first name, last word as last name (skip middle)
-                    first_name = filtered_parts[0]
-                    last_name = filtered_parts[-1]
-                    return f"{first_name} {last_name}".lower()
-                elif len(filtered_parts) == 1:
-                    # Only one name part - return as is
-                    return filtered_parts[0].lower()
-                return clean_name.lower()
+            # Return all prescribers joined by " / " for later processing
+            if processed_prescribers:
+                return " / ".join(processed_prescribers)
+        
+        # Return the cleaned name in lowercase but preserve the original format
+        return clean_name.lower()
 
     def _get_text_from_region(self, screenshot: Image.Image, region: Tuple[int, int, int, int]) -> str:
         """Crops a region, applies pre-processing, and performs OCR."""
@@ -487,6 +672,10 @@ class VerificationAgent:
                 # Use name normalization for name fields
                 cleaned_entered = self._normalize_name(entered_text, is_entered_field=True)
                 cleaned_source = self._normalize_name(source_text, is_entered_field=False)
+            elif field_name == "drug_name":
+                # Use enhanced drug name cleaning for drug fields
+                cleaned_entered = self._clean_drug_name(entered_text)
+                cleaned_source = self._clean_drug_name(source_text)
             else:
                 # Use regular text cleaning for other fields
                 cleaned_entered = self._clean_text(entered_text)
@@ -501,12 +690,17 @@ class VerificationAgent:
             threshold = 0  # Initialize threshold for debug display
             
             if cleaned_entered and cleaned_source:
-                scorer = getattr(fuzz, config["score_fn"], fuzz.ratio)
                 threshold_key = config["threshold_key"]
                 threshold = thresholds[threshold_key]
                 
+                # Special handling for drug names with enhanced semantic matching
+                if field_name == "drug_name":
+                    score, is_match = self._enhanced_drug_name_match(
+                        cleaned_entered, cleaned_source, threshold
+                    )
                 # Special handling for prescriber names - check multiple prescribers separated by "/"
-                if field_name == "prescriber_name" and " / " in cleaned_source:
+                elif field_name == "prescriber_name" and " / " in cleaned_source:
+                    scorer = getattr(fuzz, config["score_fn"], fuzz.ratio)
                     prescribers = [p.strip() for p in cleaned_source.split(" / ")]
                     best_score = 0
                     for prescriber in prescribers:
@@ -521,6 +715,7 @@ class VerificationAgent:
                     score = best_score
                 else:
                     # Regular comparison for other fields or single prescriber
+                    scorer = getattr(fuzz, config["score_fn"], fuzz.ratio)
                     score = scorer(cleaned_entered, cleaned_source)
                     is_match = score >= threshold
 

@@ -41,12 +41,82 @@ Choose option 3 to launch both the setup GUI and monitoring interface!
 
 ## How It Works
 
-The program automatically handles common differences between the entered data and source documents:
+The program automatically handles common differences between the entered data and source documents through intelligent text processing:
 
-- **Name Format Normalization**: The left side shows names as "Last, First" while the right side shows "First Last" - the program automatically converts both to the same format for accurate comparison
-- **Pharmacy Abbreviation Expansion**: Common pharmacy abbreviations (po, bid, tid, etc.) are expanded for better matching
-- **Smart Text Cleaning**: Removes punctuation and normalizes spacing for consistent comparisons
+### 🧹 Smart Text Cleaning & Normalization
+
+- **Name Format Normalization**: Automatically converts between "Last, First" and "First Last" formats for accurate patient name comparison
+- **Patient Middle Name Handling**: Intelligently matches names with or without middle names/initials (e.g., "John M Smith" matches "John Smith")
+- **Prescriber Title Cleaning**: Removes professional titles and suffixes (Dr., MD, PharmD, etc.) from prescriber names for consistent comparison
+- **Smart Text Cleaning**: Removes punctuation, normalizes spacing, and handles case differences for consistent comparisons
+
+### 💊 Pharmacy-Specific Intelligence
+
+- **Comprehensive Sig Abbreviation Expansion**: Automatically expands common pharmacy abbreviations:
+  - **Frequency**: bid → twice daily, tid → three times daily, qid → four times daily
+  - **Route**: po → by mouth, sl → sublingual, IM → intramuscular  
+  - **Timing**: ac → before meals, pc → after meals, hs → at bedtime
+  - **Quantity**: q4h → every 4 hours, prn → as needed
+  - **And many more** - handles dozens of standard pharmacy abbreviations
+- **Enhanced Drug Name Matching**: Advanced semantic matching for drug names with:
+  - **Release formulations**: ER (Extended Release), DR (Delayed Release), XR, LA, SA, SR, CR, etc.
+  - **Dosage forms**: TAB (Tablet), CAP (Capsule), TBEC (Tablet Delayed Release), etc.
+  - **Administration routes**: PO (By Mouth), IV (Intravenous), IM (Intramuscular), etc.
+  - **Common pharmacy terms**: DISP (Dispense), SIG (Directions), PRN (As Needed), etc.
+  - **Brand name patterns**: HCL (Hydrochloride), HCTZ (Hydrochlorothiazide), etc.
+  - **Multiple matching strategies**: Direct fuzzy matching, token sort ratio, partial matching, and core drug name matching
+  - **Easy maintenance**: Add custom abbreviations through external JSON configuration file
+- **Flexible Sig Matching**: Accounts for different ways pharmacies express the same directions
+- **Route Normalization**: Handles variations in administration routes (oral/po/by mouth)
+
+#### Drug Name Abbreviation Management
+
+The system includes an extensive pharmaceutical abbreviation system that's completely externalized for easy maintenance:
+
+**Easy Updates Method:**
+1. Edit `abbreviations.json` in the same folder as the main script
+2. Add your custom abbreviations in this format:
+```json
+{
+    " er ": " extended release ",
+    " dr ": " delayed release ",
+    " tbec ": " tablet delayed release ",
+    " your_custom_abbr ": " your expansion "
+}
+```
+
+**All abbreviations are now managed externally** - no code editing required! The system loads all pharmaceutical abbreviations from `abbreviations.json` at startup, including:
+- Release formulations (ER, DR, XR, LA, etc.)
+- Dosage forms (TAB, CAP, TBEC, etc.)  
+- Administration routes (PO, IV, IM, etc.)
+- Frequency terms (BID, TID, QID, etc.)
+- Common pharmacy abbreviations and brand names
+
+**Important formatting rules:**
+- Include spaces around abbreviations (e.g., `" er "` not `"er"`)
+- Use lowercase for both abbreviations and expansions
+- The spaces ensure word boundary matching
+
+**Advanced Drug Name Matching Features:**
+- Automatically removes dosage information (5mg, 10ml, etc.) that might interfere with matching
+- Normalizes salt forms (hydrochloride → hcl, sulfate → sulf, etc.)
+- Uses multiple matching strategies to find the best score:
+  - Direct fuzzy matching
+  - Token sort ratio (handles word order differences)
+  - Token set ratio (handles extra words)
+  - Partial ratio (handles subsets)
+  - Core drug name matching (first significant word)
+  - Cross-word matching (any word to any word)
+
+**Testing Your Changes:**
+- Restart the application to load new abbreviations
+- Check console output for confirmation that custom abbreviations were loaded
+- Use the OCR testing features in the GUI to verify improvements
+
+### 🎯 Advanced Matching Logic
+
 - **Flexible Matching**: Uses a 65% similarity threshold to account for minor OCR differences and typos
+- **Context-Aware Processing**: Different cleaning rules for names vs. drug names vs. directions
 - **Adaptive Timing**: Responds quickly to screen changes (0.1s) and slows down when screen is static to save CPU
 - **Prescription Change Detection**: Automatically detects when you move to a new prescription and re-runs verification
 
