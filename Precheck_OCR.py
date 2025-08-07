@@ -321,6 +321,7 @@ class VerificationAgent:
         Enhanced drug name matching with semantic awareness.
         Considers dosage information critical - different dosages are different drugs.
         Different salt forms (tartrate vs succinate) are also considered different drugs.
+        Requires strong similarity in the actual drug name, not just dosage/form matching.
         
         Args:
             entered_text: Text from the entered field
@@ -341,13 +342,26 @@ class VerificationAgent:
         import re
         
         # Extract dosage information from both strings
-        entered_dosages = re.findall(r'\b\d+(\.\d+)?\s*(mg|mcg|ug|g|ml|l|units?|iu|%)\b', clean_entered)
-        source_dosages = re.findall(r'\b\d+(\.\d+)?\s*(mg|mcg|ug|g|ml|l|units?|iu|%)\b', clean_source)
+        entered_dosages = re.findall(r'\b(\d+(?:\.\d+)?)\s*(mg|mcg|ug|g|ml|l|units?|iu|%)\b', clean_entered)
+        source_dosages = re.findall(r'\b(\d+(?:\.\d+)?)\s*(mg|mcg|ug|g|ml|l|units?|iu|%)\b', clean_source)
         
         # If both have dosages but they're different, consider it a mismatch
-        if entered_dosages and source_dosages and entered_dosages != source_dosages:
-            print(f"Dosage mismatch detected: {entered_dosages} vs {source_dosages}")
-            return 50.0, False  # Return a mediocre score to indicate partial match but dosage difference
+        if entered_dosages and source_dosages:
+            # Normalize dosages for comparison (convert to same format)
+            def normalize_dosage(dosages):
+                normalized = []
+                for dose_value, unit in dosages:
+                    # Convert to float for numeric comparison
+                    dose_num = float(dose_value)
+                    normalized.append((dose_num, unit.lower()))
+                return normalized
+            
+            entered_norm = normalize_dosage(entered_dosages)
+            source_norm = normalize_dosage(source_dosages)
+            
+            if entered_norm != source_norm:
+                print(f"Dosage mismatch detected: {entered_norm} vs {source_norm}")
+                return 50.0, False  # Return a mediocre score to indicate partial match but dosage difference
         
         # Check for different salt forms that should be considered different drugs
         distinct_salt_pairs = [
@@ -366,6 +380,85 @@ class VerificationAgent:
                 print(f"Different salt forms detected: {salt1} vs {salt2}")
                 return 40.0, False  # Return a low score to indicate different drugs
         
+        # Extract the drug name portion (remove dosage and common terms to focus on drug name)
+        def extract_drug_name_portion(text):
+            # Remove dosage information and common pharmaceutical terms
+            drug_text = text
+            # Remove dosages
+            drug_text = re.sub(r'\b\d+(\.\d+)?\s*(mg|mcg|ug|g|ml|l|units?|iu|%)\b', '', drug_text)
+            # Remove common pharmaceutical terms
+            common_terms = ['tablet', 'tablets', 'capsule', 'capsules', 'by mouth', 'oral', 
+                          'extended release', 'immediate release', 'delayed release',
+                          'milligram', 'microgram', 'gram', 'milliliter', 'liter']
+            for term in common_terms:
+                drug_text = drug_text.replace(term, '')
+            # Clean up extra spaces
+            drug_text = ' '.join(drug_text.split())
+            return drug_text.strip()
+        
+        # Extract just the drug name portions
+        entered_drug_name = extract_drug_name_portion(clean_entered)
+        source_drug_name = extract_drug_name_portion(clean_source)
+        
+        print(f"Drug name portions - Entered: '{entered_drug_name}', Source: '{source_drug_name}'")
+        
+        # Get the first word (the actual drug name) from each string
+        entered_first_word = entered_drug_name.split()[0] if entered_drug_name else ""
+        source_first_word = source_drug_name.split()[0] if source_drug_name else ""
+        
+        print(f"First words (main drug names) - Entered: '{entered_first_word}', Source: '{source_first_word}'")
+        
+        # Initialize first_word_similarity for later use
+        first_word_similarity = 0
+        
+        # Check for brand name in parentheses in the original source text
+        # This handles cases like "empagliflozin 10mg (JARDIANCE)" where the brand is in parentheses
+        brand_name_in_source = ""
+        import re
+        brand_match = re.search(r'\(([^)]+)\)', source_text.lower())
+        if brand_match:
+            # Extract just the first word of what's in parentheses (the brand name)
+            brand_in_parentheses = brand_match.group(1).strip()
+            # Remove common words and get the first significant word
+            brand_words = [w for w in brand_in_parentheses.split() if w not in ['tablet', 'capsule', 'mg', 'milligram']]
+            brand_name_in_source = brand_words[0] if brand_words else ""
+            print(f"Brand name found in source parentheses: '{brand_name_in_source}'")
+        
+        # If the first words (main drug names) are too different, check against brand name too
+        if entered_first_word and source_first_word:
+            first_word_similarity = fuzz.ratio(entered_first_word, source_first_word)
+            print(f"First word similarity: {first_word_similarity:.2f}")
+            
+            # If direct comparison fails, try comparing with brand name in parentheses
+            brand_similarity = 0
+            if brand_name_in_source and first_word_similarity < 70:
+                brand_similarity = fuzz.ratio(entered_first_word, brand_name_in_source)
+                print(f"Brand name similarity ('{entered_first_word}' vs '{brand_name_in_source}'): {brand_similarity:.2f}")
+            
+            # Use the better of the two similarities
+            best_first_word_similarity = max(first_word_similarity, brand_similarity)
+            
+            # If both the generic and brand name comparisons fail, this is likely different drugs
+            if best_first_word_similarity < 70:
+                print(f"Both generic and brand name comparisons failed ({best_first_word_similarity:.2f}%), likely different drugs")
+                # Return a low score that won't pass most thresholds
+                return min(60.0, best_first_word_similarity + 15), False
+            elif brand_similarity > first_word_similarity:
+                print(f"Brand name match found! Using brand similarity: {brand_similarity:.2f}")
+                # Update first_word_similarity to use the better brand match
+                first_word_similarity = brand_similarity
+        
+        # If drug names are too different overall, don't allow high scores based on dosage/form matching
+        if entered_drug_name and source_drug_name:
+            drug_name_similarity = fuzz.ratio(entered_drug_name, source_drug_name)
+            print(f"Full drug name similarity: {drug_name_similarity:.2f}")
+            
+            # If drug names are very different (< 60% similar), cap the overall score
+            if drug_name_similarity < 60:
+                print(f"Drug names too different ({drug_name_similarity:.2f}%), capping score to prevent false positive")
+                # Return a moderate score that won't pass most thresholds
+                return min(65.0, drug_name_similarity + 10), False
+        
         # Try multiple matching strategies and take the best score
         scores = []
         
@@ -383,6 +476,27 @@ class VerificationAgent:
         
         # Take the best score but cap at 100
         best_score = min(100, max(scores))
+        
+        # Additional check: if drug names are different but dosage/form match,
+        # reduce the score significantly to prevent false positives
+        # Give extra weight to the first word (main drug name) similarity
+        if entered_drug_name and source_drug_name:
+            drug_name_similarity = fuzz.ratio(entered_drug_name, source_drug_name)
+            # Use the first_word_similarity that was calculated above (includes brand name check)
+            
+            # If either the first words or overall drug names don't match well, adjust the score
+            if (first_word_similarity < 70 or drug_name_similarity < 70) and best_score > 75:
+                # Weight the first word similarity more heavily since it's the actual drug name
+                primary_similarity = (first_word_similarity * 0.7) + (drug_name_similarity * 0.3)
+                # Significantly reduce score when drug names don't match well
+                adjusted_score = (best_score * 0.5) + (primary_similarity * 0.5)
+                print(f"Adjusted score due to drug name mismatch:")
+                print(f"  First word similarity (incl. brand check): {first_word_similarity:.2f}")
+                print(f"  Overall drug similarity: {drug_name_similarity:.2f}")
+                print(f"  Primary similarity (weighted): {primary_similarity:.2f}")
+                print(f"  Final adjustment: {best_score:.2f} -> {adjusted_score:.2f}")
+                best_score = adjusted_score
+        
         is_match = best_score >= threshold
         
         return best_score, is_match

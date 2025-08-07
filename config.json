@@ -7,79 +7,79 @@
     "verification_wait_seconds": 0.5
   },
   "thresholds": {
-    "patient": 75,
-    "prescriber": 75,
+    "patient": 70,
+    "prescriber": 70,
     "drug": 70,
-    "sig": 70
+    "sig": 65
   },
   "regions": {
     "trigger": [
-      13,
-      276,
-      229,
-      302
+      10,
+      173,
+      144,
+      187
     ],
     "fields": {
       "patient_name": {
         "entered": [
-          144,
-          416,
-          437,
-          446
+          92,
+          260,
+          271,
+          279
         ],
         "source": [
-          837,
-          831,
-          1561,
-          856
+          518,
+          506,
+          748,
+          535
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "patient"
       },
       "prescriber_name": {
         "entered": [
-          147,
-          540,
-          464,
-          566
+          92,
+          335,
+          291,
+          354
         ],
         "source": [
-          837,
-          637,
-          1528,
-          661
+          518,
+          388,
+          866,
+          412
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "prescriber"
       },
       "drug_name": {
         "entered": [
-          150,
-          820,
-          498,
-          850
+          91,
+          510,
+          308,
+          528
         ],
         "source": [
-          852,
-          1063,
-          1853,
-          1096
+          528,
+          655,
+          950,
+          679
         ],
         "score_fn": "ratio",
         "threshold_key": "drug"
       },
       "direction_sig": {
         "entered": [
-          40,
-          1504,
-          624,
-          1534
+          24,
+          812,
+          385,
+          823
         ],
         "source": [
-          858,
-          1180,
-          1855,
-          1218
+          530,
+          724,
+          1149,
+          756
         ],
         "score_fn": "ratio",
         "threshold_key": "sig"
