@@ -1,48 +1,22 @@
 # Pharmacy Pre-Check Verification Agent
 
-The **simplest** way to set up and monitor your pharmacy verification system! This program watches your screen for the "Pre-Check Rx" pharmacy software and helps verify that the information entered matches the source document. It places colored boxes over fields to show you if they match (green) or don't match (red).
+The **simplest** way to set up and assit your pharmacy data entry verification system! This program watches your screen for the "Pre-Check Rx" pharmacy software (PioneerRx) and helps verify that the information entered matches the source document. It places colored boxes over fields to show you if they match (green) or don't match (red). And in YOLO mode it can even automatically send a key press (F12 by default for PRx) to advance to the next prescription when all fields are green!
 
-This app is built with the PioneeRx pharmacy dispensing software, if you use a differnt software and need help adapting this app to your setup, please feel free to reach out! The concet of precheck verification for data entry accuracy shall be the same or very similar regardless of the software you use.
+This app is built with the PioneeRx pharmacy dispensing software, if you use a differnt software and need help adapting this app to your setup, please feel free to reach out or customize to your keyword trigger! The concet of precheck verification for data entry accuracy shall be the same or very similar regardless of the software you use.
 
 **🚀 EASY SETUP:** Use the simple launcher to get started with both the coordinate setup GUI and web monitoring interface!
 
-## 🎯 Quick Start (Recommended)
-
-### Option 1: Super Easy Launcher (Recommended)
-```bash
-python launcher.py
-```
-**Or double-click:** `start.bat` (Windows)
-
-Choose option 3 to launch both the setup GUI and monitoring interface!
-
-### Option 2: Manual Steps
-1. **Set up coordinates:** `python settings_gui.py`
-2. **Monitor system:** `streamlit run streamlit_app.py`
-
-## 📖 What You Get
-
-- **🛠️ Easy Setup GUI**: Drag and drop to select screen regions
-- **🌐 Web Monitoring**: Modern dashboard accessible from any device
-- **📱 Mobile Access**: Check status from your phone or tablet
-- **📊 Real-time Analytics**: Performance metrics and accuracy tracking
-- **🔍 Live OCR Testing**: Verify your setup immediately
-
----
-
-## 🎯 Why This Approach?
-
-| Feature | This System | Complex Solutions |
-|---------|-------------|-------------------|
-| **Setup** | ✅ Drag & drop GUI | ❌ Manual coordinates |
-| **Monitoring** | ✅ Web dashboard | ❌ Command line only |
-| **User Friendly** | ✅ At best effort | ❌ Technical |
-| **Reliability** | ✅ Proven GUI + modern web | ❌ Experimental |
 
 ## How It Works
 
-The program automatically handles common differences between the entered data and source documents through intelligent text processing:
+This program monitors the selected screen area for the "Pre-Check Rx" keyword trigger. Once detects, it will performs the following tasks:
+1. read the data entered patient name, prescriber name, drug name, and directions/sig from the selected screen regions
+2. compare the entered data against the source document. This is desgined for standard eRx format where the source info are in the fixed locations. 
+3. give a matching score for each field based on the similarity of the entered data and the source document (in a very smart way)
+4. display colored boxes over the fields to indicate matches (green) or mismatches (red), the passing rate is cutomizable by the user
+5. optionally, a YOLO (you only live once) mode will automatically send a key press (F12 by default) to autopilot the process
 
+## Fancy skill to make it "smart"
 ### 🧹 Smart Text Cleaning & Normalization
 
 - **Name Format Normalization**: Automatically converts between "Last, First" and "First Last" formats for accurate patient name comparison
@@ -97,16 +71,21 @@ The system includes an extensive pharmaceutical abbreviation system that's compl
 - Use lowercase for both abbreviations and expansions
 - The spaces ensure word boundary matching
 
-**Advanced Drug Name Matching Features:**
-- Automatically removes dosage information (5mg, 10ml, etc.) that might interfere with matching
-- Normalizes salt forms (hydrochloride → hcl, sulfate → sulf, etc.)
-- Uses multiple matching strategies to find the best score:
-  - Direct fuzzy matching
+**Advanced Drug Name Matching Features:** (this is the most time comsuming part of the program)
+- **Preserves dosage information** (5mg, 10ml, etc.) as it's critical for drug identification - metformin 500mg ≠ metformin 1000mg
+- **Strict dosage validation**: Different dosages are treated as different medications to prevent dispensing errors
+- **Smart salt form handling**: 
+  - Normalizes equivalent forms (hydrochloride ↔ hcl) for better matching
+  - Maintains distinct salts as separate drugs (metoprolol tartrate ≠ metoprolol succinate)
+  - Distinguishes release formulations (IR ≠ ER ≠ SR ≠ XR)
+- **Enhanced matching strategies with weighted prioritization**:
+  - **Primary drug name matching** (first word gets highest weight for pharmaceutical accuracy)
+  - Direct fuzzy matching (weighted higher for exact matches)
   - Token sort ratio (handles word order differences)
-  - Token set ratio (handles extra words)
-  - Partial ratio (handles subsets)
-  - Core drug name matching (first significant word)
-  - Cross-word matching (any word to any word)
+  - Token set ratio (handles extra words, weighted lower to reduce false positives)
+  - Partial ratio (handles subsets, weighted lower)
+  - **Dosage mismatch detection**: Automatically flags when dosages don't match
+  - **Salt form validation**: Identifies incompatible salt combinations
 
 **Testing Your Changes:**
 - Restart the application to load new abbreviations
@@ -115,7 +94,7 @@ The system includes an extensive pharmaceutical abbreviation system that's compl
 
 ### 🎯 Advanced Matching Logic
 
-- **Flexible Matching**: Uses a 65% similarity threshold to account for minor OCR differences and typos
+- **Flexible Matching**: Uses a 75%+ similarity threshold to account for minor OCR differences and typos
 - **Context-Aware Processing**: Different cleaning rules for names vs. drug names vs. directions
 - **Adaptive Timing**: Responds quickly to screen changes (0.1s) and slows down when screen is static to save CPU
 - **Prescription Change Detection**: Automatically detects when you move to a new prescription and re-runs verification
@@ -123,21 +102,6 @@ The system includes an extensive pharmaceutical abbreviation system that's compl
 ---
 
 ## Setup Instructions
-
-### 🚀 Super Quick Setup
-
-1. **Download and extract** this project
-2. **Run the launcher:**
-   ```bash
-   python launcher.py
-   ```
-3. **Choose option 3** (Launch Both)
-4. **Set up coordinates** in the GUI that opens
-5. **Monitor** in the web browser that opens
-
-### Manual Setup Steps
-
-Follow these steps if you prefer to do things manually.
 
 ### Step 1: Download the Project Files
 
@@ -208,25 +172,37 @@ The system automatically:
 - ✅ Backs up settings
 - ✅ Tests OCR functionality
 
-## How to Run the Program
+## 🚀 Quick Start Guide
 
-**SETUP NOTES:**
-- The program works with any screen resolution and window configuration
-- Use the coordinate adjustment tools (described below) to configure regions for your setup
+**Recommended:** Use the super easy launcher for the best experience!
+
+### Option 1: Auto-Launcher (Easiest)
+```bash
+python launcher.py
+```
+**Or double-click:** `start.bat` (Windows)
+
+**Choose option 3** to launch both setup GUI and monitoring interface!
+
+### Option 2: Step-by-Step
+1. **Set up coordinates:** `python settings_gui.py`
+2. **Start monitoring:** `streamlit run streamlit_app.py`
+
+### Option 3: Advanced Users Only
+For direct core engine access:
+```bash
+python Precheck_OCR.py
+```
+
+**🎯 Setup Notes:**
+- Works with any screen resolution and window configuration
+- Use the GUI coordinate tools to configure regions for your setup
 - Your pharmacy software can be windowed or maximized - just adjust coordinates accordingly
-
-1.  Open your pharmacy software in your preferred window configuration
-2.  Open the Command Prompt and navigate to the project folder (as you did in Step 3.2)
-3.  Type the following command and press **Enter**:
-    ```
-    python Precheck_OCR.py
-    ```
-4.  The agent is now running. It will silently watch your screen. When it sees the "Pre-Check Rx" window, it will automatically perform the check and show the colored boxes
-5.  **If the colored boxes appear in wrong locations:** Stop the program (Ctrl+C) and use the coordinate adjustment tools below to configure the regions for your setup
+- **If colored boxes appear in wrong locations:** Use the coordinate adjustment tools below
 
 ## How to Stop the Program
 
-To stop the program, go to the Command Prompt window where it is running and press the **`Ctrl`** + **`C`** keys at the same time.
+To stop the program, go to the Command Prompt window where it is running and press the **`Ctrl`** + **`C`** keys at the same time. Or simply close the Command Prompt window.
 
 ---
 
@@ -269,9 +245,10 @@ python settings_gui.py
 
 **Requirements:** 
 - tkinter (usually included with Python)
-- If GUI doesn't work, install with: `brew install python-tk` (macOS)
 
-### Command-Line Tool (Fallback)
+
+### Command-Line Tool (Fallback) 
+This was created for debugging purpose in the begining, may not update in the future as the program is stablized and GUI is more user-friendly.
 
 **File:** `settings_cli.py`
 
@@ -320,8 +297,8 @@ Both the GUI and command-line tools now allow you to configure general program s
 
 Control how strict the text matching is for each field type:
 
-- **Patient Name Threshold** (default: 65%): How similar patient names must be to consider a match
-- **Prescriber Name Threshold** (default: 65%): How similar prescriber names must be to consider a match  
+- **Patient Name Threshold** (default: 75%): How similar patient names must be to consider a match
+- **Prescriber Name Threshold** (default: 75%): How similar prescriber names must be to consider a match  
 - **Drug Name Threshold** (default: 65%): How similar drug names must be to consider a match
 - **Directions/Sig Threshold** (default: 65%): How similar directions must be to consider a match
 
@@ -381,7 +358,7 @@ Once launched, open your web browser to: http://localhost:8501
 If you see this error, it means the program can't find your Tesseract installation. Try these solutions:
 
 **Option 1: Add Tesseract to your system PATH**
-1. Find where Tesseract was installed (usually `C:\Program Files\Tesseract-OCR`)
+1. Find where Tesseract was installed (usually `C:\Program Files\Tesseract-OCR`). Please make sure you installed it with admin credentials and selected "install for all users".
 2. Add this path to your Windows PATH environment variable:
    - Press `Windows + R`, type `sysdm.cpl`, and press Enter
    - Click "Environment Variables"
@@ -416,18 +393,12 @@ If you see this error, it means the program can't find your Tesseract installati
 ### "Web interface won't open"
 - Try: `python -m streamlit run streamlit_app.py`
 - Check firewall isn't blocking port 8501
-- Try `http://127.0.0.1:8501` instead
-
-### "Can't capture coordinates"
-- **Windows:** Run as administrator if needed
-- **macOS:** Grant screen recording permission in System Preferences
-- **Linux:** Install `python3-tk` and `scrot`
+- Try `http://127.0.0.1:8501` or `http://localhost:8501` instead
+- Streamlit runs on http, not https by default. Please ignore all safety warnings from your browser.
 
 ### "OCR not working"
 - Install Tesseract: Download from https://github.com/tesseract-ocr/tesseract
 - Windows: Add to PATH or put in project folder
-- macOS: `brew install tesseract`
-- Linux: `sudo apt-get install tesseract-ocr`
 
 ### Program Shows Red/Green Boxes in Wrong Locations
 
@@ -480,7 +451,7 @@ After cleanup, here's what each file does:
 1. Set up coordinates using the GUI
 2. Start monitoring in the web interface
 3. Keep the browser tab open
-4. Optionally run as a system service
+4. Optional autopilot **YOLO** mode
 
 ### Multiple Configurations
 - Export configurations from the GUI
@@ -527,90 +498,19 @@ After cleanup, here's what each file does:
 
 ---
 
-
-
-## � Troubleshooting
-
-### "tesseract is not installed or it's not in your PATH" Error
-
-If you see this error, it means the program can't find your Tesseract installation. Try these solutions:
-
-**Option 1: Add Tesseract to your system PATH**
-1. Find where Tesseract was installed (usually `C:\Program Files\Tesseract-OCR\`)
-2. Add this path to your Windows PATH environment variable:
-   - Press `Windows + R`, type `sysdm.cpl`, and press Enter
-   - Click "Environment Variables"
-   - Under "System Variables", find and select "Path", then click "Edit"
-   - Click "New" and add the Tesseract installation path (e.g., `C:\Program Files\Tesseract-OCR\`)
-   - Click "OK" on all windows
-3. Restart your Command Prompt and try running the program again
-
-### Program Shows Red/Green Boxes in Wrong Locations
-
-This means the coordinate regions need adjustment for your specific setup. **Use the coordinate adjustment tools to fix this easily!**
-
-**Option 1: Use the Interactive Settings Tool (Recommended)**
-1. Run the settings GUI tool:
-   ```
-   python settings_gui.py
-   ```
-2. The tool will open with a screenshot of your desktop
-3. First, set up the trigger region:
-   - Select "trigger" from the dropdown
-   - Click and drag around the "Pre-Check Rx" text or any reliable text in the window
-4. Then, for each field (patient_name, prescriber_name, drug_name, direction_sig):
-   - Select the field from the dropdown
-   - Choose "Entered" for left panel fields or "Source" for right panel fields
-   - Click and drag to draw a rectangle around the text area
-   - The coordinates will be automatically updated
-5. Click "Save Configuration" when done
-6. Run the main program again to test
-
-**Option 2: Manual Troubleshooting**
-1. **Check Window Position**: Note the exact position and size of your pharmacy software window
-2. **Use Command-Line Helper**: Run `python settings_cli.py show` to see current coordinates
-3. **Test Individual Regions**: Use the settings GUI's "Test OCR" feature to verify each region
-4. **Adjust as Needed**: The program adapts to any screen resolution and window configuration
-
----
-
-## 📁 File Structure
-
-After cleanup, here's what each file does:
-
-| File | Purpose |
-|------|---------|
-| `launcher.py` | **Start here!** Main launcher with setup wizard |
-| `start.bat` | **Windows users:** Double-click to launch |
-| `settings_gui.py` | **Coordinate setup:** Drag & drop region selection |
-| `streamlit_app.py` | **Web monitoring:** Modern dashboard interface |
-| `Precheck_OCR.py` | **Core engine:** The verification logic |
-| `settings_manager.py` | **Configuration:** Manages settings and backups |
-| `config.json` | **Your settings:** Coordinates and thresholds |
-| `STREAMLIT_README.md` | **Web interface guide:** Detailed documentation |
-
----
-
-
-## 🔒 Privacy & Security
-
-- ✅ **Completely local** - no data sent anywhere
-- ✅ **HIPAA friendly** - patient data stays on your machine  
-- ✅ **No internet required** for core functionality
-- ✅ **Open source** - you can see exactly what it does
-
----
-
 ## 📈 Future Improvements - My favorite part
 
-I'm planning a **centralized architecture** with GPU-accelerated OCR and AI-powered semantic matching for even better accuracy while maintaining complete privacy and HIPAA compliance. The vision is a single powerful computer serving multiple pharmacies.
+1. With my nVIDIA DGX reservation, I'm planning a **centralized architecture** with GPU-accelerated OCR and AI-powered semantic matching for even better accuracy while maintaining complete privacy and HIPAA compliance. The vision is a single powerful computer with a highly customized for pharmacy local AI model serving multiple pharmacies.
+2. By using paddleOCR with **nVIDIA CUDA**, I can leverage the GPU for much faster and more accurate OCR processing compared to CPU-bound Tesseract. Also PaddleOCR supports **training custom models**, which opens the door for pharmacy-specific OCR models that can handle common fonts, layouts, and artifacts seen in prescriptions. This could significantly improve text recognition accuracy.
+3. The knowledge base of current local LLM will provide the best drug name and sig **semantic matching**, replacing the hardcoded string matching logic with a more flexible and intelligent approach.
+4. New opensource LLM models are coming out every month, and with the right fine-tuning and prompt engineering, I believe we can achieve very high accuracy for drug name and sig matching while keeping everything local and private.
 
 **Central Processing Hub Vision:**
 - **One Powerful Machine**: A dedicated high-performance computer with enterprise-grade GPU serving multiple pharmacy locations
 - **Network-Based Service**: All pharmacies connect to the central hub for processing, eliminating the need for individual high-end workstations
 - **Scalable Architecture**: One central system can handle OCR and verification requests from dozens of pharmacy workstations simultaneously
 - **Cost-Effective**: Replace multiple individual CPU-limited systems with one shared powerful GPU machine
-- **Centralized Management**: Single point of configuration, updates, and maintenance for all connected pharmacies
+- **Centralized Management**: Single point of configuration, updates, model training and maintenance for all connected pharmacies
 
 **Hardware Requirements:**
 
@@ -620,15 +520,17 @@ I'm planning a **centralized architecture** with GPU-accelerated OCR and AI-powe
 
 **Future System (Centralized GPU Hub):**
 - **Central Hub Minimum**: 32GB RAM, RTX 5070+ for serving 5-10 pharmacy workstations
-- **Central Hub Recommended**: 128GB RAM, RTX 4090 for serving 15-25 pharmacy workstations  
-- **Central Hub Optimal**: 128GB+ RAM, H100s for serving 50+ pharmacy workstations
+- **Central Hub Recommended**: 64GB RAM, RTX 5090 for serving 15-25 pharmacy workstations  
+- **Central Hub Optimal**: 128GB+ RAM, DGX/H100 for serving 50+ pharmacy workstations
 - **Pharmacy Workstations**: Basic computers with network connectivity - no special hardware required
 - **Network Infrastructure**: Reliable high-speed internet connection between pharmacies and central hub
 
 **Implementation Timeline:**
-- **Phase 1 (Centralized PaddleOCR)**: Deploy central hub with GPU-accelerated OCR serving multiple pharmacy locations
+- **Phase 1 (Centralized PaddleOCR)**: convert to PaddleOCR for GPU-based OCR processing,build initial central hub prototype
+- **Phase 1.5 (Local LLM Integration)**: build local LLM for semantic drug name and sig matching, replacing hardcoded logic
 - **Phase 2 (Network Architecture)**: Develop secure API system for pharmacy workstations to communicate with central hub
-- **Phase 3 (AI Semantic Analysis)**: Replace hardcoded string matching with LLM-based semantic understanding on the central system
+- **Phase 3 (AI Semantic Analysis)**: Replace hardcoded string matching with LLM-based semantic understanding on the central system with prompt engineering
+- **Phase 3.5 (Local LLM Training)**: Fine-tune local LLM on pharmacy-specific data for better accuracy
 - **Phase 4 (Multi-Pharmacy Integration)**: Scale to support dozens of pharmacy locations from single central hub
 - **Phase 5 (Enterprise Features)**: Add centralized reporting, analytics, and management across all connected pharmacies
 - This represents an evolution from individual pharmacy systems to a centralized service architecture
@@ -643,6 +545,7 @@ I'm planning a **centralized architecture** with GPU-accelerated OCR and AI-powe
 - **Reliability**: Professional-grade central system with redundancy and backup capabilities
 - **Analytics**: Aggregated insights across multiple pharmacy locations while maintaining privacy
 
-*Interested in this direction? Let me know your thoughts and specific use cases!*
+*Interested in this direction? Feel free to reach out to me, let's make pharmacy work fully AI-lized*
+**Google `Hayat Pharmacy`, call and look for Kevin** :-)
 
 ---
