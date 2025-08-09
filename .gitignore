@@ -39,6 +39,7 @@ __pycache__/
 .vscode/
 *.swp
 *.swo
+AGENTS.md
 
 # Build artifacts
 build/
