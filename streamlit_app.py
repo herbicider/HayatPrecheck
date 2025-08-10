@@ -580,6 +580,8 @@ class SimplePharmacyApp:
                 st.session_state.monitoring_thread = monitoring_thread
                 
                 st.success("✅ Verification monitoring started!")
+                # Force UI to refresh so Start disables and status updates immediately
+                st.rerun()
             else:
                 st.error("Cannot start verification: Configuration not loaded!")
         except Exception as e:
@@ -598,6 +600,8 @@ class SimplePharmacyApp:
                 st.session_state.monitoring_thread = None
                 
             st.success("🛑 Verification monitoring stopped!")
+            # Force UI to refresh so Start enables again immediately
+            st.rerun()
             
         except Exception as e:
             st.error(f"Error stopping verification: {e}")

@@ -1,20 +1,27 @@
 # Pharmacy Pre-Check Verification Agent
 
-The **simplest** way to set up and assit your pharmacy data entry verification system! This program watches your screen for the "Pre-Check Rx" pharmacy software (PioneerRx) and helps verify that the information entered matches the source document. It places colored boxes over fields to show you if they match (green) or don't match (red). And in YOLO mode it can even automatically send a key press (F12 by default for PRx) to advance to the next prescription when all fields are green!
+The **simplest** way to set up and assit your pharmacy data entry verification system! 
 
-This app is built with the PioneeRx pharmacy dispensing software, if you use a differnt software and need help adapting this app to your setup, please feel free to reach out or customize to your keyword trigger! The concet of precheck verification for data entry accuracy shall be the same or very similar regardless of the software you use.
+Quality pharmacist time should be utilized in a more professional task like therapeutic review, drug-drug-interaction identfication, solution to personalized patient needs, instead of mechanically reading and comparing for the data entry accurcay. 
 
-**🚀 EASY SETUP:** Use the simple launcher to get started with both the coordinate setup GUI and web monitoring interface!
+Human gets tired after hours of reading and, unavoidly, the error rate goes up. While a machine can do the repetative work 24/7 at the same level of performance.
+
+This program will help you! It watches your screen for the "Pre-Check Rx" pharmacy software (PioneerRx) and helps verify that the information entered matches the source document. It places colored boxes over fields to show you if they match (green) or don't match (red). And in YOLO (You only live once!) mode it can even automatically send a key press (F12 by default for PRx) to advance to the next prescription when all fields are green!
+
+This app is built for the PioneeRx pharmacy dispensing software, if you use a differnt software and need help adapting this app to your setup, please feel free to reach out or simply customize to your keyword trigger in the codebase (Precheck_OCR.py file)! The concept of precheck verification for data entry accuracy shall be the same or very similar regardless of the software you use.
+
+And yes, verification of patient DOB, patient address, prescriber address, phone number, fax number etc... can be added easily, currently the overall speed is heavily limited by the computer CPU, I'm only keeping the most essential ones here. Autopilot still needs driver's attention, so use at your own discretion.  
 
 
 ## How It Works
 
 This program monitors the selected screen area for the "Pre-Check Rx" keyword trigger. Once detects, it will performs the following tasks:
-1. read the data entered patient name, prescriber name, drug name, and directions/sig from the selected screen regions
-2. compare the entered data against the source document. This is desgined for standard eRx format where the source info are in the fixed locations. 
-3. give a matching score for each field based on the similarity of the entered data and the source document (in a very smart way)
-4. display colored boxes over the fields to indicate matches (green) or mismatches (red), the passing rate is cutomizable by the user
-5. optionally, a YOLO (you only live once) mode will automatically send a key press (F12 by default) to autopilot the process
+1. Reads the data entered and the source: patient name, prescriber name, drug name, and directions/sig from the selected screen regions
+2. Compares the entered data against the source document. This is desgined for standard eRx format where the source info are in the fixed locations. (paper Rx pleae check the "future plan" section) 
+3. Gives a matching score for each field based on the similarity of the entered data and the source document (in a very complicated way, I used fuzzy compare, tokenize, cleaning for titles, middle names, handling abbrevations, etc.)
+4. Displays colored boxes over the fields to indicate matches (green) or mismatches (red), the passing rate is cutomizable by the user
+5. Optionally, a YOLO (you only live once) mode will automatically send a key press (F12 by default) to autopilot the process
+6. It polls the screen and read Rx number to check if new Rx is displayed, and will start the process again.
 
 ## Fancy skill to make it "smart"
 ### 🧹 Smart Text Cleaning & Normalization
@@ -136,10 +143,10 @@ If you don't have Python, you'll need to install it.
 
 This is the engine that reads the text on your screen.
 
-1.  Download the **Tesseract OCR** for Windows from this link: [Download Tesseract for Windows](https://github.com/UB-Mannheim/tesseract/releases)
-    *   Find the most recent release and download the Windows installer (`.exe` file) that matches your system (32-bit or 64-bit).
-2.  Run the downloaded installer and follow the installation wizard.
-    *   **Important:** During installation, make sure to check the option to "Add Tesseract to PATH" if available, or note the installation directory (usually `C:\Program Files\Tesseract-OCR`).
+1.  Download the **Tesseract OCR** for Windows from this link: [Download Tesseract for Windows](https://digi.bib.uni-mannheim.de/tesseract/tesseract-ocr-w64-setup-v5.3.0.20221214.exe)
+    *   This is most recent exe file, let me know if not working.
+2.  Run the downloaded installer with Admin credential and follow the installation wizard.
+    *   **Important:** During installation, make sure to check the option to *"Add Tesseract to PATH"* if available, or note the installation directory (usually `C:\Program Files\Tesseract-OCR`).
 3.  After installation is complete, Tesseract will be available system-wide.
 
 ---
@@ -193,6 +200,8 @@ For direct core engine access:
 ```bash
 python Precheck_OCR.py
 ```
+
+The app will run and log for debug will continue to show up in the command window.
 
 **🎯 Setup Notes:**
 - Works with any screen resolution and window configuration
@@ -337,14 +346,15 @@ streamlit run streamlit_app.py
 
 ### Streamlit Features
 
-🏠 **Single Interface**: Everything in one web application
-📊 **Real-time Monitoring**: Live charts and analytics of verification performance  
-⚙️ **Visual Settings**: Easy configuration with sliders and visual feedback
-📱 **Mobile Friendly**: Access from any device on your network
-📈 **Advanced Analytics**: Time-based filtering and performance metrics
-🔧 **Coordinate Setup**: Screenshot-assisted coordinate configuration
-💾 **Auto-Backup**: Automatic configuration backups
-🎯 **OCR Testing**: Test regions directly in the interface
+- 🏠 **Single Interface**: Everything in one web application
+- 📊 **Real-time Monitoring**: Live charts and analytics of verification performance  
+- ⚙️ **Visual Settings**: Easy configuration with sliders and visual feedback
+- 📱 **Mobile Friendly**: Access from any device on your network
+- 📈 **Advanced Analytics**: Time-based filtering and performance metrics
+- 🔧 **Coordinate Setup**: Screenshot-assisted coordinate configuration
+- 💾 **Backup**: Allow configuration backups for different monitors
+- 🎯 **OCR Testing**: Test regions directly in the interface
+
 
 ### Access Your Application
 Once launched, open your web browser to: http://localhost:8501
@@ -500,7 +510,8 @@ After cleanup, here's what each file does:
 
 ## 📈 Future Improvements - My favorite part
 
-1. With my nVIDIA DGX reservation, I'm planning a **centralized architecture** with GPU-accelerated OCR and AI-powered semantic matching for even better accuracy while maintaining complete privacy and HIPAA compliance. The vision is a single powerful computer with a highly customized for pharmacy local AI model serving multiple pharmacies.
+1. I'm planning a **centralized architecture** with GPU-accelerated OCR and AI-powered semantic matching for even better accuracy while maintaining complete privacy and HIPAA compliance. The vision is a single powerful computer with a highly customized for pharmacy local AI model serving multiple pharmacies.
+*My nVidia DGX reserversion has being indefinitely delayed, I'm planning to use online AI API to process the strings pulled by OCR. With prompt engineering, we can ask for a matching score of drug name and directions while keeping other PHIs locally.*  
 2. By using paddleOCR with **nVIDIA CUDA**, I can leverage the GPU for much faster and more accurate OCR processing compared to CPU-bound Tesseract. Also PaddleOCR supports **training custom models**, which opens the door for pharmacy-specific OCR models that can handle common fonts, layouts, and artifacts seen in prescriptions. This could significantly improve text recognition accuracy.
 3. The knowledge base of current local LLM will provide the best drug name and sig **semantic matching**, replacing the hardcoded string matching logic with a more flexible and intelligent approach.
 4. New opensource LLM models are coming out every month, and with the right fine-tuning and prompt engineering, I believe we can achieve very high accuracy for drug name and sig matching while keeping everything local and private.
@@ -545,7 +556,6 @@ After cleanup, here's what each file does:
 - **Reliability**: Professional-grade central system with redundancy and backup capabilities
 - **Analytics**: Aggregated insights across multiple pharmacy locations while maintaining privacy
 
-*Interested in this direction? Feel free to reach out to me, let's make pharmacy work fully AI-lized*
-**Google `Hayat Pharmacy`, call and look for Kevin** :-)
+*Interested in this direction? Feel free to reach out to me,submit issue or just send a pull request. Let's make pharmacy work fully AI-lized*
 
 ---
