@@ -8,7 +8,7 @@ Human gets tired after hours of reading and, unavoidly, the error rate goes up. 
 
 This program will help you! It watches your screen for the "Pre-Check Rx" pharmacy software (PioneerRx) and helps verify that the information entered matches the source document. It places colored boxes over fields to show you if they match (green) or don't match (red). And in YOLO (You only live once!) mode it can even automatically send a key press (F12 by default for PRx) to advance to the next prescription when all fields are green!
 
-This app is built for the PioneeRx pharmacy dispensing software, if you use a differnt software and need help adapting this app to your setup, please feel free to reach out or simply customize to your keyword trigger in the codebase (Precheck_OCR.py file)! The concept of precheck verification for data entry accuracy shall be the same or very similar regardless of the software you use.
+This app is built for the PioneeRx pharmacy dispensing software, if you use a differnt software and need help adapting this app to your setup, please feel free to reach out or simply customize to your keyword trigger in the codebase (verification_controller.py file)! The concept of precheck verification for data entry accuracy shall be the same or very similar regardless of the software you use.
 
 And yes, verification of patient DOB, patient address, prescriber address, phone number, fax number etc... can be added easily, currently the overall speed is heavily limited by the computer CPU, I'm only keeping the most essential ones here. Autopilot still needs driver's attention, so use at your own discretion.  
 
@@ -198,7 +198,7 @@ python launcher.py
 ### Option 3: Advanced Users Only
 For direct core engine access:
 ```bash
-python Precheck_OCR.py
+python verification_controller.py
 ```
 
 The app will run and log for debug will continue to show up in the command window.
@@ -387,11 +387,15 @@ If you see this error, it means the program can't find your Tesseract installati
    |   |-- tesseract.exe
    |   |-- tessdata/
    |-- Precheck_OCR.py
+   |-- logger_config.py
    |-- settings_gui.py
    |-- settings_cli.py
+   |-- coordinate_adjuster.py
+   |-- coordinate_helper.py
    |-- launcher.py
    |-- start.bat
    |-- config.json
+   |-- abbreviations.json
    |-- requirements.txt
    |-- README.md
    ```
@@ -449,7 +453,7 @@ After cleanup, here's what each file does:
 | `start.bat` | **Windows users:** Double-click to launch |
 | `settings_gui.py` | **Coordinate setup:** Drag & drop region selection |
 | `streamlit_app.py` | **Web monitoring:** Modern dashboard interface |
-| `Precheck_OCR.py` | **Core engine:** The verification logic |
+| `verification_controller.py` | **Core engine:** The verification logic |
 | `settings_manager.py` | **Configuration:** Manages settings and backups |
 | `config.json` | **Your settings:** Coordinates and thresholds |
 

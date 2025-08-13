@@ -16,6 +16,7 @@ import json
 import os
 import time
 import logging
+from logger_config import setup_logging
 import re
 from datetime import datetime, timedelta
 import plotly.express as px
@@ -28,15 +29,20 @@ from typing import Dict, Any, List, Optional, Tuple
 
 class SimplePharmacyApp:
     def __init__(self):
+        # Initialize logging early for Streamlit runs (safe to call multiple times)
+        try:
+            setup_logging()
+        except Exception:
+            pass
         # Import modules here to avoid module-level Streamlit calls
         try:
-            from Precheck_OCR import VerificationAgent
+            from verification_controller import VerificationController
             from settings_manager import SettingsManager
-            self.VerificationAgent = VerificationAgent
+            self.VerificationController = VerificationController
             self.SettingsManager = SettingsManager
         except ImportError as e:
             st.error(f"Could not import required modules: {e}")
-            st.info("Please ensure Precheck_OCR.py and settings_manager.py are in the same directory.")
+            st.info("Please ensure verification_controller.py and settings_manager.py are in the same directory.")
             st.stop()
             
         self.config_file = "config.json"
@@ -48,8 +54,8 @@ class SimplePharmacyApp:
         # Initialize session state
         if 'verification_running' not in st.session_state:
             st.session_state.verification_running = False
-        if 'verification_agent' not in st.session_state:
-            st.session_state.verification_agent = None
+        if 'verification_controller' not in st.session_state:
+            st.session_state.verification_controller = None
 
     def load_config(self) -> bool:
         """Load configuration from config.json"""
@@ -560,15 +566,15 @@ class SimplePharmacyApp:
     def start_verification(self):
         """Start the verification process"""
         try:
-            if self.config and hasattr(self, 'VerificationAgent'):
-                # Create verification agent
-                agent = self.VerificationAgent(self.config)
-                st.session_state.verification_agent = agent
+            if self.config and hasattr(self, 'VerificationController'):
+                # Create verification controller
+                controller = self.VerificationController(self.config)
+                st.session_state.verification_controller = controller
                 
                 # Start monitoring in a background thread
                 def run_monitoring():
                     try:
-                        agent.run()
+                        controller.run()
                     except Exception as e:
                         logging.error(f"Error in monitoring thread: {e}")
                 
@@ -592,9 +598,9 @@ class SimplePharmacyApp:
         try:
             st.session_state.verification_running = False
             
-            if st.session_state.verification_agent:
-                st.session_state.verification_agent.stop()
-                st.session_state.verification_agent = None
+            if st.session_state.verification_controller:
+                st.session_state.verification_controller.stop()
+                st.session_state.verification_controller = None
             
             if 'monitoring_thread' in st.session_state:
                 st.session_state.monitoring_thread = None
@@ -606,7 +612,7 @@ class SimplePharmacyApp:
         except Exception as e:
             st.error(f"Error stopping verification: {e}")
             st.session_state.verification_running = False
-            st.session_state.verification_agent = None
+            st.session_state.verification_controller = None
 
     def run(self):
         """Main application runner"""        
