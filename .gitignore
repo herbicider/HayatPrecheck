@@ -40,6 +40,7 @@ __pycache__/
 *.swp
 *.swo
 AGENTS.md
+.claude/
 
 # Build artifacts
 build/
@@ -77,6 +78,7 @@ gemini.md
 notes.md
 TODO.md
 *_notes.txt
+
 
 # Generated files and screenshots
 screenshots/

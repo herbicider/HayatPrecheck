@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from typing import Dict, Any, Tuple, Optional
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from ocr_provider import TesseractOcrProvider
 from comparison_engine import ComparisonEngine
