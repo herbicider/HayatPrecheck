@@ -1,4 +1,15 @@
 {
+  "_comment_ocr": "OCR provider options: 'auto' (recommended - automatically selects best provider), 'easyocr' (best accuracy, GPU-accelerated if available), 'tesseract' (fastest, CPU-only). Auto mode uses EasyOCR with GPU if available, Tesseract if no GPU, or EasyOCR CPU as fallback.",
+  "_comment_auto_logic": "Auto selection: 1) EasyOCR + GPU (best accuracy), 2) Tesseract (best speed, no GPU), 3) EasyOCR CPU (fallback)",
+  "ocr_provider": "auto",
+  "tesseract": {
+    "config_options": "--psm 7",
+    "fallback_config": "--psm 8"
+  },
+  "easyocr": {
+    "use_gpu": true,
+    "confidence_threshold": 0.5
+  },
   "timing": {
     "fast_polling_seconds": 0.2,
     "trigger_check_interval_seconds": 1.0,
@@ -14,34 +25,34 @@
   },
   "regions": {
     "trigger": [
-      10,
-      173,
-      144,
-      187
+      4,
+      171,
+      143,
+      192
     ],
     "fields": {
       "patient_name": {
         "entered": [
-          92,
-          260,
-          271,
-          279
+          85,
+          253,
+          278,
+          283
         ],
         "source": [
           518,
-          506,
-          748,
-          535
+          509,
+          836,
+          532
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "patient"
       },
       "prescriber_name": {
         "entered": [
-          92,
-          335,
-          291,
-          354
+          86,
+          330,
+          296,
+          357
         ],
         "source": [
           518,
@@ -54,16 +65,16 @@
       },
       "drug_name": {
         "entered": [
-          91,
-          510,
-          308,
-          528
+          90,
+          507,
+          314,
+          529
         ],
         "source": [
-          528,
-          655,
-          950,
-          679
+          526,
+          650,
+          958,
+          670
         ],
         "score_fn": "ratio",
         "threshold_key": "drug"
@@ -76,10 +87,10 @@
           826
         ],
         "source": [
-          530,
-          724,
-          1149,
-          756
+          531,
+          727,
+          1147,
+          752
         ],
         "score_fn": "ratio",
         "threshold_key": "sig"
@@ -90,5 +101,17 @@
     "send_key_on_all_match": true,
     "key_on_all_match": "f12",
     "key_delay_seconds": 0.5
+  },
+  "advanced_settings": {
+    "trigger": {
+      "keywords": [
+        "pre",
+        "check",
+        "rx"
+      ],
+      "keyword_similarity_threshold": 90,
+      "min_keyword_matches": 2,
+      "lost_reset_delay_seconds": 5.0
+    }
   }
 }

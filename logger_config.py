@@ -47,11 +47,7 @@ def setup_logging(
 
 
 def log_rx_summary(rx_number: str, results: Dict[str, Any]) -> None:
-    """Emit a detailed Rx verification summary with OCR text and scores.
-
-    Logs complete verification details including raw OCR text, cleaned text, 
-    and detailed scoring for debugging and improvement purposes.
-    """
+    """Emit a clean Rx verification summary with OCR text and scores."""
     import datetime as _dt
 
     try:
@@ -63,28 +59,23 @@ def log_rx_summary(rx_number: str, results: Dict[str, Any]) -> None:
         rx_display = f"Rx#{rx_number}" if rx_number else "Rx#Unknown"
 
         logging.info(f"[{timestamp}] {rx_display} - {matches}/{total} fields matched ({match_percentage:.1f}%)")
-        logging.info("=" * 80)
         
         for field_name, result in results.items():
-            status = 'PASS' if result['match'] else 'FAIL'
-            logging.info(f"📋 FIELD: {field_name.upper()}")
-            logging.info(f"   Status: {status} | Score: {result['score']:.2f}")
+            status = 'YES' if result['match'] else 'NO'
+            logging.info(f"=== {field_name.upper()} FIELD ===")
             
             # Log OCR text details if available
             if 'entered_raw' in result:
-                logging.info(f"   📝 Entered (Raw OCR): '{result['entered_raw']}'")
+                logging.info(f"  Raw entered text: '{result['entered_raw']}'")
             if 'source_raw' in result:
-                logging.info(f"   📄 Source (Raw OCR):  '{result['source_raw']}'")
+                logging.info(f"  Raw source text: '{result['source_raw']}'")
             if 'entered_clean' in result:
-                logging.info(f"   🧹 Entered (Clean):   '{result['entered_clean']}'")
+                logging.info(f"  Cleaned entered: '{result['entered_clean']}'")
             if 'source_clean' in result:
-                logging.info(f"   ✨ Source (Clean):    '{result['source_clean']}'")
+                logging.info(f"  Cleaned source: '{result['source_clean']}'")
             if 'threshold' in result:
-                logging.info(f"   🎯 Threshold: {result['threshold']} | Required: {'PASS' if result['score'] >= result['threshold'] else 'FAIL'}")
-            
-            logging.info("   " + "-" * 60)
+                logging.info(f"  Score: {result['score']:.2f} | Threshold: {result['threshold']} | Match: {status}")
         
-        logging.info("=" * 80)
     except Exception as e:
         logging.error(f"Error logging Rx summary: {e}")
 

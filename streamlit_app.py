@@ -99,8 +99,6 @@ class SimplePharmacyApp:
         if 'trigger' not in regions:
             config_complete = False
             missing_items.append("🎯 Trigger region")
-        else:
-            st.success("✅ **Trigger region:** Configured")
         
         # Check fields
         fields = regions.get('fields', {})
@@ -110,21 +108,17 @@ class SimplePharmacyApp:
             if field_name not in fields:
                 config_complete = False
                 missing_items.append(f"📝 {field_display} (both entered and source)")
-                st.warning(f"⚠️ **{field_display}:** Not configured")
             else:
                 field_config = fields[field_name]
                 entered_ok = 'entered' in field_config
                 source_ok = 'source' in field_config
                 
-                if entered_ok and source_ok:
-                    st.success(f"✅ **{field_display}:** Fully configured")
-                else:
+                if not (entered_ok and source_ok):
                     config_complete = False
                     if not entered_ok:
                         missing_items.append(f"📝 {field_display} (entered)")
                     if not source_ok:
                         missing_items.append(f"📋 {field_display} (source)")
-                    st.warning(f"⚠️ **{field_display}:** Partially configured")
         
         # Show completion status
         if config_complete:
@@ -133,6 +127,32 @@ class SimplePharmacyApp:
             st.error("❌ **Configuration Incomplete** - Missing items:")
             for item in missing_items:
                 st.write(f"  • {item}")
+            
+            # Show what's configured so far (only when there are missing items)
+            st.subheader("📋 Current Status")
+            
+            if 'trigger' in regions:
+                st.success("✅ **Trigger region:** Configured")
+            
+            for field_name in required_fields:
+                field_display = field_name.replace('_', ' ').title()
+                
+                if field_name in fields:
+                    field_config = fields[field_name]
+                    entered_ok = 'entered' in field_config
+                    source_ok = 'source' in field_config
+                    
+                    if entered_ok and source_ok:
+                        st.success(f"✅ **{field_display}:** Fully configured")
+                    else:
+                        st.warning(f"⚠️ **{field_display}:** Partially configured")
+                else:
+                    st.warning(f"⚠️ **{field_display}:** Not configured")
+        
+        st.markdown("---")
+        
+        # OCR Engine Settings
+        self.show_ocr_engine_settings()
         
         st.markdown("---")
         
@@ -275,6 +295,209 @@ class SimplePharmacyApp:
         except Exception as e:
             st.error(f"❌ Validation failed: {e}")
             st.info("⚠️ This might indicate a problem with your configuration file.")
+
+    def show_ocr_engine_settings(self):
+        """Display and allow editing of OCR engine settings"""
+        st.subheader("🔍 OCR Engine Settings")
+        
+        if not self.config:
+            st.warning("No configuration loaded. Please set up coordinates first.")
+            return
+        
+        # Check available OCR engines
+        available_engines = self.check_available_ocr_engines()
+        
+        # Get current OCR provider
+        current_provider = self.config.get("ocr_provider", "tesseract")
+        
+        st.info("💡 **OCR Engine Selection:** Choose the best OCR engine for your performance and accuracy needs.")
+        
+        # Display OCR engine information
+        engine_info = {
+            "auto": {"name": "Auto (Recommended)", "speed": "Optimal", "accuracy": "95%", "description": "Smart GPU detection, best performance"},
+            "easyocr": {"name": "EasyOCR", "speed": "Good", "accuracy": "90%", "description": "High accuracy, GPU-accelerated"},
+            "tesseract": {"name": "Tesseract", "speed": "Fast", "accuracy": "85%", "description": "CPU-optimized, very reliable"}
+        }
+        
+        # Create OCR engine selection
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.write("**Available OCR Options:**")
+            
+            # Display engines with status
+            for engine_key, info in engine_info.items():
+                if engine_key == "auto":
+                    is_available = True  # Auto is always available
+                else:
+                    is_available = available_engines.get(engine_key, False)
+                is_current = (engine_key == current_provider)
+                
+                status_icon = "✅" if is_available else "❌"
+                current_icon = "🎯" if is_current else "  "
+                
+                col_a, col_b, col_c, col_d = st.columns([0.3, 0.3, 1.5, 1])
+                
+                with col_a:
+                    st.write(status_icon)
+                with col_b:
+                    st.write(current_icon)
+                with col_c:
+                    st.write(f"**{info['name']}**")
+                with col_d:
+                    st.write(f"{info['speed']}, {info['accuracy']}")
+                
+                if not is_available:
+                    st.caption(f"   💡 Install with: `pip install {engine_key}{'pytesseract (also requires Tesseract binary)' if engine_key == 'tesseract' else ''}`")
+        
+        with col2:
+            st.write("**Select OCR Engine:**")
+            
+            # Get available engine options for selection
+            available_options = []
+            available_labels = []
+            
+            for engine_key, info in engine_info.items():
+                if engine_key == "auto" or available_engines.get(engine_key, False):
+                    available_options.append(engine_key)
+                    available_labels.append(f"{info['name']} ({info['accuracy']})")
+            
+            if available_options:
+                try:
+                    current_index = available_options.index(current_provider) if current_provider in available_options else 0
+                except ValueError:
+                    current_index = 0
+                
+                selected_engine = st.selectbox(
+                    "Choose OCR Engine:",
+                    options=available_options,
+                    format_func=lambda x: f"{engine_info[x]['name']} ({engine_info[x]['accuracy']})",
+                    index=current_index,
+                    help="Select the OCR engine to use for text recognition"
+                )
+                
+                # Update OCR provider if changed
+                if selected_engine != current_provider:
+                    self.config["ocr_provider"] = selected_engine
+                    
+                    # Save the configuration
+                    try:
+                        self.settings_manager.config = self.config
+                        self.settings_manager.save_config(create_backup=True)
+                        st.success(f"✅ OCR engine updated to {engine_info[selected_engine]['name']}!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Failed to save OCR engine setting: {e}")
+            else:
+                st.error("❌ No OCR engines available!")
+                st.info("Install at least one OCR engine to continue.")
+        
+        # OCR Engine-specific settings
+        if current_provider in available_engines and available_engines[current_provider]:
+            st.write("**Engine-Specific Settings:**")
+            
+            if current_provider == "easyocr":
+                self.show_easyocr_settings()
+            elif current_provider == "tesseract":
+                self.show_tesseract_settings()
+    
+    def check_available_ocr_engines(self):
+        """Check which OCR engines are available"""
+        engines = {
+            'easyocr': False,
+            'tesseract': False
+        }
+        
+        # Check EasyOCR
+        try:
+            import easyocr
+            engines['easyocr'] = True
+        except ImportError:
+            pass
+        
+        # Check Tesseract
+        try:
+            import pytesseract
+            engines['tesseract'] = True
+        except ImportError:
+            pass
+        
+        return engines
+    
+    def show_easyocr_settings(self):
+        """Show EasyOCR-specific settings"""
+        easyocr_config = self.config.get("easyocr", {})
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            use_gpu = st.checkbox(
+                "🚀 Use GPU acceleration",
+                value=easyocr_config.get("use_gpu", True),
+                help="Enable GPU acceleration for faster processing"
+            )
+        
+        with col2:
+            confidence = st.slider(
+                "🎯 Confidence threshold",
+                min_value=0.1,
+                max_value=1.0,
+                value=easyocr_config.get("confidence_threshold", 0.5),
+                step=0.1,
+                help="Minimum confidence score for OCR results"
+            )
+        
+        # Update settings if changed
+        new_easyocr_config = {
+            "use_gpu": use_gpu,
+            "confidence_threshold": confidence
+        }
+        
+        if new_easyocr_config != easyocr_config:
+            self.config["easyocr"] = new_easyocr_config
+            self.save_config_changes()
+    
+    def show_tesseract_settings(self):
+        """Show Tesseract-specific settings"""
+        tesseract_config = self.config.get("tesseract", {})
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            config_options = st.text_input(
+                "🔧 Config options",
+                value=tesseract_config.get("config_options", "--psm 7"),
+                help="Tesseract configuration options (e.g., --psm 7)"
+            )
+        
+        with col2:
+            fallback_config = st.text_input(
+                "🔄 Fallback config",
+                value=tesseract_config.get("fallback_config", "--psm 8"),
+                help="Fallback configuration if primary config fails"
+            )
+        
+        # Update settings if changed
+        new_tesseract_config = {
+            "config_options": config_options,
+            "fallback_config": fallback_config
+        }
+        
+        if new_tesseract_config != tesseract_config:
+            self.config["tesseract"] = new_tesseract_config
+            self.save_config_changes()
+    
+    def save_config_changes(self):
+        """Save configuration changes with error handling"""
+        try:
+            self.settings_manager.config = self.config
+            self.settings_manager.save_config(create_backup=True)
+            st.success("✅ Settings updated!")
+            time.sleep(0.5)
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Failed to save settings: {e}")
 
     def show_threshold_settings(self):
         """Display and allow editing of score thresholds"""

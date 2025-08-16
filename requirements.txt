@@ -1,12 +1,20 @@
 pyautogui
 pillow
-pytesseract
 rapidfuzz
 python-Levenshtein
+
+# OCR Providers (install based on preference)
+# Tesseract (lightweight, fast initialization)
+pytesseract
+
+# EasyOCR (good accuracy, moderate initialization)
+easyocr
+
 # Streamlit web app dependencies
 streamlit
 pandas
 plotly
+
 # GUI dependencies for coordinate_adjuster.py
 # Note: tkinter comes with most Python installations
 # If tkinter is not available, use: brew install python-tk

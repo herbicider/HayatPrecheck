@@ -265,10 +265,6 @@ class ComparisonEngine:
         thresholds = self.config["thresholds"]
 
         for field_name, (entered_text, source_text) in ocr_results.items():
-            logging.info(f"=== {field_name.upper()} FIELD ===")
-            logging.info(f"  Raw entered text: '{entered_text}'")
-            logging.info(f"  Raw source text: '{source_text}'")
-
             if field_name in ["patient_name", "prescriber_name"]:
                 cleaned_entered = self._normalize_name(entered_text, is_entered_field=True)
                 cleaned_source = self._normalize_name(source_text, is_entered_field=False)
@@ -281,9 +277,6 @@ class ComparisonEngine:
             else:
                 cleaned_entered = self._clean_text(entered_text)
                 cleaned_source = self._clean_text(source_text)
-
-            logging.info(f"  Cleaned entered: '{cleaned_entered}'")
-            logging.info(f"  Cleaned source: '{cleaned_source}'")
 
             score, is_match = 0.0, False
             threshold = thresholds[fields_config[field_name]["threshold_key"]]
@@ -300,8 +293,7 @@ class ComparisonEngine:
                     score = scorer(cleaned_entered, cleaned_source)
                     is_match = score >= threshold
             
-            logging.info(f"  Score: {score:.2f} | Threshold: {threshold} | Match: {'YES' if is_match else 'NO'}")
-            
+            # Use debug logging for detailed field analysis
             log_field_details(field_name, entered_text, source_text, 
                             cleaned_entered, cleaned_source, score, threshold, is_match)
             

@@ -10,7 +10,7 @@ import re
 from typing import Dict, Any, Tuple, Optional
 from PIL import Image, ImageFilter
 
-from ocr_provider import TesseractOcrProvider
+from ocr_provider import TesseractOcrProvider, EasyOcrProvider, get_cached_ocr_provider
 from comparison_engine import ComparisonEngine
 from logger_config import setup_logging, log_rx_summary
 
@@ -21,7 +21,10 @@ class VerificationController:
         self.config = config
         self.advanced_settings = config.get("advanced_settings", {})
         
-        self.ocr_provider = TesseractOcrProvider(self.advanced_settings)
+        # Initialize OCR provider based on config (using cache to avoid reinitialization)
+        ocr_provider_type = config.get("ocr_provider", "tesseract")
+        self.ocr_provider = get_cached_ocr_provider(ocr_provider_type, self.advanced_settings)
+        logging.info(f"Using OCR provider: {ocr_provider_type}")
         self.comparison_engine = ComparisonEngine(config)
 
         self.recently_triggered = False
@@ -158,32 +161,122 @@ class VerificationController:
         return ""
 
     def _check_trigger(self, screenshot: Image.Image) -> Tuple[bool, str]:
-        """Check if the trigger text is present."""
+        """Check if the trigger text is present with enhanced keyword matching and OCR fallback."""
         trigger_config = self.advanced_settings.get("trigger", {})
         trigger_region = tuple(self.config["regions"]["trigger"])
         trigger_text = self.ocr_provider.get_text_from_region(screenshot, trigger_region)
         
+
+        
         keywords = trigger_config.get("keywords", ["pre", "check", "rx"])
-        sim_threshold = trigger_config.get("keyword_similarity_threshold", 70)
+        sim_threshold = trigger_config.get("keyword_similarity_threshold", 90)
         min_matches = trigger_config.get("min_keyword_matches", 2)
         
         from rapidfuzz import fuzz
-        text_lower_words = trigger_text.lower().split()
-        found_count = sum(1 for kw in keywords if any(fuzz.ratio(w, kw) >= sim_threshold for w in text_lower_words))
+        # Process text more thoroughly for keyword matching
+        text_lower = trigger_text.lower()
+        
+        # Split text by both spaces and common separators to handle "pre-check" cases
+        import re
+        text_words = re.split(r'[\s\-_.,;:|"\']+', text_lower)
+        text_words = [w for w in text_words if w]  # Remove empty strings
+        
+        found_count = 0
+        matched_keywords = []
+        
+        for kw in keywords:
+            best_match = 0
+            best_word = ""
+            
+            # Check direct word matches
+            for w in text_words:
+                score = fuzz.ratio(w, kw)
+                if score > best_match:
+                    best_match = score
+                    best_word = w
+            
+            # Also check substring matches for compound words like "pre-check"
+            if best_match < sim_threshold:
+                for w in text_words:
+                    if kw in w or w in kw:
+                        substring_score = max(
+                            fuzz.ratio(kw, w),
+                            fuzz.partial_ratio(kw, w),
+                            fuzz.partial_ratio(w, kw)
+                        )
+                        if substring_score > best_match:
+                            best_match = substring_score
+                            best_word = w
+            
+            # Check against the full text for phrases like "pre-check"
+            if best_match < sim_threshold:
+                full_text_score = fuzz.partial_ratio(kw, text_lower)
+                if full_text_score > best_match:
+                    best_match = full_text_score
+                    best_word = f"(in full text)"
+            
+            if best_match >= sim_threshold:
+                found_count += 1
+                matched_keywords.append(f"{kw}→{best_word}({best_match:.1f})")
         
         trigger_detected = found_count >= min_matches
         rx_number = self._extract_rx_number(trigger_text) if trigger_detected else ""
         
+        # Debug logging for trigger detection
+        if trigger_detected:
+            logging.debug(f"Trigger detected: '{trigger_text}' | Matched: {matched_keywords}")
+        else:
+            logging.debug(f"Trigger not detected: '{trigger_text}' | Found {found_count}/{min_matches} keywords: {matched_keywords}")
+        
         return trigger_detected, rx_number
+    
+    def _is_suspicious_ocr_result(self, text: str) -> bool:
+        """Check if OCR result looks suspicious (garbage text)."""
+        if not text or len(text.strip()) < 3:
+            return True
+            
+        # Check for patterns that indicate garbage OCR
+        # 1. Too many single characters
+        words = text.split()
+        single_chars = sum(1 for w in words if len(w) == 1)
+        if len(words) > 3 and single_chars / len(words) > 0.6:
+            return True
+            
+        # 2. Repetitive characters like "s s s s s" or "h x s s s s e h s s s s s s"
+        if len(set(text.replace(' ', '').lower())) < 3 and len(text) > 10:
+            return True
+            
+        # 3. Repetitive characters like "s s s s s" pattern
+        if len(set(text.replace(' ', '').lower())) < 3 and len(text) > 10:
+            return True
+            
+        # 4. No recognizable English patterns
+        import re
+        if not re.search(r'[a-zA-Z]{2,}', text):  # No words with 2+ letters
+            return True
+            
+        return False
     
     def _perform_ocr_on_all_fields(self, screenshot: Image.Image) -> Dict[str, Tuple[str, str]]:
         """Performs OCR on all configured fields and returns the raw text."""
+        logging.info("Starting OCR processing on all fields...")
         ocr_results = {}
         fields_config = self.config["regions"]["fields"]
+        
         for field_name, config in fields_config.items():
-            entered_text = self.ocr_provider.get_text_from_region(screenshot, tuple(config["entered"]), f"{field_name}_entered")
-            source_text = self.ocr_provider.get_text_from_region(screenshot, tuple(config["source"]), f"{field_name}_source")
-            ocr_results[field_name] = (entered_text, source_text)
+            logging.info(f"Processing OCR for field: {field_name}")
+            try:
+                logging.debug(f"OCR for {field_name} entered region: {config['entered']}")
+                entered_text = self.ocr_provider.get_text_from_region(screenshot, tuple(config["entered"]), f"{field_name}_entered")
+                logging.debug(f"OCR for {field_name} source region: {config['source']}")
+                source_text = self.ocr_provider.get_text_from_region(screenshot, tuple(config["source"]), f"{field_name}_source")
+                ocr_results[field_name] = (entered_text, source_text)
+                logging.info(f"Completed OCR for field: {field_name} | Entered: '{entered_text[:50]}...' | Source: '{source_text[:50]}...'")
+            except Exception as e:
+                logging.error(f"Error processing OCR for {field_name}: {e}")
+                ocr_results[field_name] = ("", "")
+        
+        logging.info(f"Completed OCR processing for {len(ocr_results)} fields")
         return ocr_results
 
     def _verify_all_fields(self, screenshot: Image.Image):
@@ -222,9 +315,14 @@ class VerificationController:
         """Main monitoring loop."""
         logging.info("Starting to monitor for 'pre-check rx' text...")
         consecutive_no_change = 0
+        loop_count = 0
         
         while not self.should_stop:
             try:
+                loop_count += 1
+                if loop_count % 10 == 0:  # Log every 10th iteration to show it's running
+                    logging.info(f"Monitoring loop running... (iteration {loop_count})")
+                
                 screenshot = pyautogui.screenshot()
                 screen_changed = self._has_screen_changed(screenshot)
                 if screen_changed:
@@ -263,9 +361,12 @@ class VerificationController:
                             self.processed_rx_times[current_rx_number] = now
 
                         time.sleep(self.config["timing"]["verification_wait_seconds"])
+                        logging.info("Taking fresh screenshot for verification...")
                         fresh_screenshot = pyautogui.screenshot()
                         
+                        logging.info("Starting OCR on all fields...")
                         ocr_results = self._perform_ocr_on_all_fields(fresh_screenshot)
+                        logging.info("Getting prescription signature...")
                         current_sig = self._get_prescription_signature(ocr_results)
                         
                         if self.last_verified_signature and current_sig and current_sig == self.last_verified_signature and (not current_rx_number or current_rx_number == self.last_rx_number):
@@ -302,13 +403,17 @@ def load_config(path: str) -> Optional[Dict[str, Any]]:
 
 def main():
     """Application entry point."""
-    setup_logging()
-    config = load_config("config.json")
-    if config:
-        controller = VerificationController(config)
-        controller.run()
-    else:
-        logging.critical("Failed to load configuration. Exiting.")
+    try:
+        setup_logging()
+        config = load_config("config.json")
+        if config:
+            controller = VerificationController(config)
+            controller.run()
+        else:
+            logging.critical("Failed to load configuration. Exiting.")
+            sys.exit(1)
+    except Exception as e:
+        logging.error(f"Unexpected error in main(): {e}", exc_info=True)
         sys.exit(1)
 
 if __name__ == "__main__":
