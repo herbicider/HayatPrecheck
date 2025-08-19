@@ -105,8 +105,7 @@
   "advanced_settings": {
     "trigger": {
       "keywords": [
-        "pre",
-        "check",
+        "pre-check",
         "rx"
       ],
       "keyword_similarity_threshold": 90,
