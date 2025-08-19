@@ -78,6 +78,7 @@ class SettingsGUI:
         self.show_labels = tk.BooleanVar(value=True)
         self.auto_save = tk.BooleanVar(value=False)
         self.preview_mode = tk.BooleanVar(value=False)
+        self.optional_field_vars = {}
         
         # Initialize UI variables
         self.field_var: tk.StringVar = tk.StringVar()
@@ -477,7 +478,11 @@ class SettingsGUI:
             ("patient", "Patient Name"),
             ("prescriber", "Prescriber Name"), 
             ("drug", "Drug Name"),
-            ("sig", "Directions/Sig")
+            ("sig", "Directions/Sig"),
+            ("patient_dob", "Patient DOB"),
+            ("patient_address", "Patient Address"),
+            ("patient_phone", "Patient Phone"),
+            ("prescriber_address", "Prescriber Address")
         ]
         
         # Create two columns for threshold settings
@@ -600,6 +605,36 @@ class SettingsGUI:
         delay_entry.bind('<Return>', lambda e: self.update_automation("delay", delay_var.get()))
         
         self.settings_vars["auto_delay"] = delay_var
+
+        # Optional Fields Settings
+        ttk.Separator(settings_frame, orient='horizontal').pack(fill=tk.X, pady=10)
+        
+        optional_fields_frame = ttk.Frame(settings_frame)
+        optional_fields_frame.pack(fill=tk.X)
+        
+        ttk.Label(optional_fields_frame, text="Optional Fields to Verify:", 
+                 font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
+
+        if not hasattr(self, 'optional_field_vars'):
+            self.optional_field_vars = {}
+            
+        self.optional_fields_config = {
+            "patient_dob": "Patient DOB",
+            "patient_address": "Patient Address",
+            "patient_phone": "Patient Phone",
+            "prescriber_address": "Prescriber Address"
+        }
+        
+        enabled_fields = self.config.get("optional_fields_enabled", {})
+
+        for key, label in self.optional_fields_config.items():
+            var = tk.BooleanVar()
+            var.set(enabled_fields.get(key, False))
+            
+            check = ttk.Checkbutton(optional_fields_frame, text=label, variable=var,
+                                  command=lambda k=key: self.toggle_optional_field(k))
+            check.pack(anchor=tk.W)
+            self.optional_field_vars[key] = var
     
     def update_threshold(self, field_key):
         """Update threshold value in config."""
@@ -653,13 +688,54 @@ class SettingsGUI:
                 current_delay = self.config.get("automation", {}).get("key_delay_seconds", 0.5)
                 self.settings_vars["auto_delay"].set(str(current_delay))
     
+    def toggle_optional_field(self, field_key):
+        """Handle toggling of an optional field."""
+        if not self.config:
+            return
+
+        if "optional_fields_enabled" not in self.config:
+            self.config["optional_fields_enabled"] = {}
+        
+        is_enabled = self.optional_field_vars[field_key].get()
+        self.config["optional_fields_enabled"][field_key] = is_enabled
+
+        if is_enabled:
+            # If enabled, ensure a placeholder exists in regions.fields
+            if field_key not in self.config["regions"]["fields"]:
+                threshold_key = field_key
+                self.config["regions"]["fields"][field_key] = {
+                    "entered": [0, 0, 0, 0],
+                    "source": [0, 0, 0, 0],
+                    "score_fn": "ratio",
+                    "threshold_key": threshold_key
+                }
+                # Also need a threshold for it.
+                if "thresholds" not in self.config:
+                    self.config["thresholds"] = {}
+                if threshold_key not in self.config["thresholds"]:
+                    self.config["thresholds"][threshold_key] = 65 # default
+        
+        self.update_field_options()
+        self.update_status(f"Optional field {field_key} {'enabled' if is_enabled else 'disabled'}")
+        
+        if self.auto_save.get():
+            self.save_config()
+
     def update_field_options(self):
         """Update field options in the combobox."""
         if not self.config or not self.field_combo:
             return
             
-        field_options = ["trigger"] + list(self.config["regions"]["fields"].keys())
-        self.field_combo['values'] = field_options
+        mandatory_fields = ["patient_name", "prescriber_name", "drug_name", "direction_sig"]
+        
+        enabled_optional_fields = []
+        if "optional_fields_enabled" in self.config:
+            for field, is_enabled in self.config["optional_fields_enabled"].items():
+                if is_enabled:
+                    enabled_optional_fields.append(field)
+
+        field_options = ["trigger"] + mandatory_fields + enabled_optional_fields
+        self.field_combo['values'] = sorted(list(set(field_options)))
     
     def update_status(self, message: str):
         """Update the status label with a message."""

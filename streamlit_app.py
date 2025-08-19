@@ -90,6 +90,11 @@ class SimplePharmacyApp:
         # Check if configuration is complete
         required_regions = ['trigger']
         required_fields = ['patient_name', 'prescriber_name', 'drug_name', 'direction_sig']
+        
+        # Add enabled optional fields to the list of fields to check for completeness
+        enabled_optional_fields = self.config.get("optional_fields_enabled", {})
+        fields_to_check = required_fields + [field for field, enabled in enabled_optional_fields.items() if enabled]
+
         required_field_types = ['entered', 'source']
         
         config_complete = True
@@ -102,7 +107,7 @@ class SimplePharmacyApp:
         
         # Check fields
         fields = regions.get('fields', {})
-        for field_name in required_fields:
+        for field_name in fields_to_check:
             field_display = field_name.replace('_', ' ').title()
             
             if field_name not in fields:
@@ -134,7 +139,7 @@ class SimplePharmacyApp:
             if 'trigger' in regions:
                 st.success("✅ **Trigger region:** Configured")
             
-            for field_name in required_fields:
+            for field_name in fields_to_check:
                 field_display = field_name.replace('_', ' ').title()
                 
                 if field_name in fields:
@@ -158,6 +163,11 @@ class SimplePharmacyApp:
         
         # Score Threshold Settings
         self.show_threshold_settings()
+
+        st.markdown("---")
+        
+        # Optional Fields Settings
+        self.show_optional_fields_settings()
         
         st.markdown("---")
         
@@ -499,6 +509,60 @@ class SimplePharmacyApp:
         except Exception as e:
             st.error(f"❌ Failed to save settings: {e}")
 
+    def show_optional_fields_settings(self):
+        """Display and allow editing of optional fields to verify."""
+        st.subheader("➕ Optional Verification Fields")
+        
+        if not self.config:
+            st.warning("No configuration loaded.")
+            return
+
+        st.info("💡 Select additional fields to verify. You must set up their coordinates after enabling them.")
+
+        optional_fields_config = {
+            "patient_dob": "Patient DOB",
+            "patient_address": "Patient Address",
+            "patient_phone": "Patient Phone",
+            "prescriber_address": "Prescriber Address"
+        }
+
+        enabled_fields = self.config.get("optional_fields_enabled", {})
+        changes_made = False
+        
+        col1, col2 = st.columns(2)
+        
+        for i, (key, label) in enumerate(optional_fields_config.items()):
+            col = col1 if i % 2 == 0 else col2
+            with col:
+                current_value = enabled_fields.get(key, False)
+                new_value = st.checkbox(label, value=current_value, key=f"optional_{key}")
+
+                if new_value != current_value:
+                    if "optional_fields_enabled" not in self.config:
+                        self.config["optional_fields_enabled"] = {}
+                    self.config["optional_fields_enabled"][key] = new_value
+                    changes_made = True
+
+                    # If a field is enabled, add a placeholder config for it
+                    if new_value:
+                        if "fields" not in self.config["regions"]:
+                            self.config["regions"]["fields"] = {}
+                        if key not in self.config["regions"]["fields"]:
+                            threshold_key = key
+                            self.config["regions"]["fields"][key] = {
+                                "entered": [0, 0, 0, 0],
+                                "source": [0, 0, 0, 0],
+                                "score_fn": "ratio",
+                                "threshold_key": threshold_key
+                            }
+                            if "thresholds" not in self.config:
+                                self.config["thresholds"] = {}
+                            if threshold_key not in self.config["thresholds"]:
+                                self.config["thresholds"][threshold_key] = 65
+
+        if changes_made:
+            self.save_config_changes()
+
     def show_threshold_settings(self):
         """Display and allow editing of score thresholds"""
         st.subheader("🎯 Score Thresholds")
@@ -521,6 +585,19 @@ class SimplePharmacyApp:
             ("drug", "💊 Drug Name"),
             ("sig", "📝 Sig/Instructions")
         ]
+        
+        # Add optional fields if they are enabled
+        enabled_optional_fields = self.config.get("optional_fields_enabled", {})
+        optional_fields_map = {
+            "patient_dob": "🎂 Patient DOB",
+            "patient_address": "🏠 Patient Address",
+            "patient_phone": "📞 Patient Phone",
+            "prescriber_address": "🏥 Prescriber Address"
+        }
+
+        for key, label in optional_fields_map.items():
+            if enabled_optional_fields.get(key, False):
+                threshold_fields.append((key, label))
         
         changes_made = False
         new_thresholds = {}

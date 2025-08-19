@@ -80,7 +80,11 @@ class VerificationController:
         """Get a signature of the current prescription to detect changes."""
         try:
             signature_parts = []
-            for field_name in ["patient_name", "drug_name"]:
+            
+            # Use mandatory fields for the core signature
+            mandatory_fields = ["patient_name", "drug_name"]
+            
+            for field_name in mandatory_fields:
                 if field_name in ocr_results:
                     entered_text, source_text = ocr_results[field_name]
                     if field_name == "patient_name":
@@ -261,9 +265,18 @@ class VerificationController:
         """Performs OCR on all configured fields and returns the raw text."""
         logging.info("Starting OCR processing on all fields...")
         ocr_results = {}
-        fields_config = self.config["regions"]["fields"]
         
-        for field_name, config in fields_config.items():
+        # Include mandatory fields plus any enabled optional fields
+        fields_to_process = list(self.config["regions"]["fields"].keys())
+        enabled_optional_fields = self.config.get("optional_fields_enabled", {})
+        
+        for field_name in list(fields_to_process):
+            if field_name not in ["patient_name", "prescriber_name", "drug_name", "direction_sig"]:
+                if not enabled_optional_fields.get(field_name, False):
+                    fields_to_process.remove(field_name)
+
+        for field_name in fields_to_process:
+            config = self.config["regions"]["fields"][field_name]
             logging.info(f"Processing OCR for field: {field_name}")
             try:
                 logging.debug(f"OCR for {field_name} entered region: {config['entered']}")

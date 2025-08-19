@@ -215,6 +215,49 @@ class ComparisonEngine:
         text = text.translate(str.maketrans('', '', string.punctuation))
         return ' '.join(text.split())
 
+    def _clean_phone_number(self, text: str) -> str:
+        """Cleans phone number to a consistent format of digits only."""
+        if not text:
+            return ""
+        return re.sub(r'\\D', '', text)
+
+    def _normalize_address(self, text: str) -> str:
+        """Normalizes address to focus on street number and name."""
+        if not text:
+            return ""
+        
+        text = text.lower().strip()
+        
+        # Common address abbreviations
+        address_abbreviations = {
+            r'\\bn\\b': 'north', r'\\bs\\b': 'south', r'\\be\\b': 'east', r'\\bw\\b': 'west',
+            r'\\bst\\b': 'street', r'\\bave\\b': 'avenue', r'\\brd\\b': 'road', r'\\bln\\b': 'lane',
+            r'\\bdr\\b': 'drive', r'\\bblvd\\b': 'boulevard', r'\\bct\\b': 'court'
+        }
+        for abbr, full in address_abbreviations.items():
+            text = re.sub(abbr, full, text)
+            
+        # Remove punctuation and extra whitespace
+        text = re.sub(r'[^\\w\\s]', '', text)
+        text = ' '.join(text.split())
+        
+        # Extract number and main part of address
+        match = re.match(r'^(\\d+)\\s+(.*)', text)
+        if match:
+            number = match.group(1)
+            rest = match.group(2)
+            # Take first few words of street name to avoid apartment numbers etc.
+            street_name = ' '.join(rest.split()[:2])
+            return f"{number} {street_name}"
+            
+        return text # fallback to just cleaned text
+
+    def _clean_dob(self, text: str) -> str:
+        """Cleans date of birth to a consistent format of digits only."""
+        if not text:
+            return ""
+        return re.sub(r'\\D', '', text)
+
     def _normalize_name(self, name: str, is_entered_field: bool = False) -> str:
         """Normalizes names to handle format differences and medical titles."""
         if not name:
@@ -265,6 +308,9 @@ class ComparisonEngine:
         thresholds = self.config["thresholds"]
 
         for field_name, (entered_text, source_text) in ocr_results.items():
+            if field_name not in fields_config:
+                continue
+
             if field_name in ["patient_name", "prescriber_name"]:
                 cleaned_entered = self._normalize_name(entered_text, is_entered_field=True)
                 cleaned_source = self._normalize_name(source_text, is_entered_field=False)
@@ -274,6 +320,15 @@ class ComparisonEngine:
             elif field_name in ["direction_sig", "sig", "directions"]:
                 cleaned_entered = self._clean_sig_text(entered_text)
                 cleaned_source = self._clean_sig_text(source_text)
+            elif field_name == "patient_dob":
+                cleaned_entered = self._clean_dob(entered_text)
+                cleaned_source = self._clean_dob(source_text)
+            elif field_name == "patient_phone":
+                cleaned_entered = self._clean_phone_number(entered_text)
+                cleaned_source = self._clean_phone_number(source_text)
+            elif field_name in ["patient_address", "prescriber_address"]:
+                cleaned_entered = self._normalize_address(entered_text)
+                cleaned_source = self._normalize_address(source_text)
             else:
                 cleaned_entered = self._clean_text(entered_text)
                 cleaned_source = self._clean_text(source_text)
