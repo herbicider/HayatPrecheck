@@ -1,16 +1,20 @@
 # What's new?
 
+**08/19/2025: AI incorporation**
+
+**AI-Powered Verification**: The system now is able to integrate with OpenAI-compatible APIs for intelligent text comparison and semantic matching. Configure your preferred AI endpoint, API key, and model through the dedicated AI settings page. Customize system and user prompts to optimize verification accuracy for your specific workflow. It allows you to choos what to use AI and what to use traditional fuzzy matching on a per-field basis for maximum flexibility and HIPAA compliance (NEVER send patient info to online AI).
+
+**🔒 HIPAA Compliance Notice**: For maximum privacy protection, use local AI models (like Ollama, LM Studio, or GPT4All) instead of cloud-based APIs when processing patient data. During development and testing, I used a local Phi3-mini model to ensure sensitive information never leaves the premises.
+
 **08/15/2025: Major OCR Engine Update**
 
-**PaddleOCR Removed**: After extensive testing, PaddleOCR has been removed from the application due to poor performance with small text areas. The engine consistently returned garbage text like "x h s s s s s s h s" for small regions, achieving misleadingly high confidence scores. While PaddleOCR works well for full-window text recognition, it becomes CPU-intensive and impractical for most pharmacy workstations that lack dedicated GPU hardware.
+**PaddleOCR Removed**: After extensive testing, PaddleOCR has been removed from the application due to poor performance with small text areas. It's reserved for future full page VLLM analysis. 
 
 **Current OCR Strategy**: The application now uses a dual-engine approach with **automatic selection**:
 - **EasyOCR**: Primary choice for GPU-enabled systems (better accuracy)
 - **Tesseract**: Fallback for CPU-only systems (faster performance, requires separate installation)
 
-**Future Considerations**: Exploring local Vision Language Models (VLMs) as a potential replacement for OCR processing, which could eliminate installation dependencies entirely.
-
-**Hardware Updates**: Due to indefinite delays in my NVIDIA DGX reservation, I have ordered an RTX card to continue the AI side of this project. Multiple requests have been received for expanding verification to clinical review and adjudication workflows on additional pages - this remains under consideration for future development.
+I've noticed on CPU only computer, Tesseract is faster than EasyOCR while EasyOCR provides better accuracy. Pick at your own discretion.
 
 *Have ideas or suggestions? Please submit an issue or reach out!* 
 
@@ -518,21 +522,31 @@ If you specifically need Tesseract, try these solutions:
 3. Your project should then look like this:
    ```
    HayatPrecheck-main/
-   |-- tesseract/
+   |-- tesseract/                    # Optional Tesseract installation
    |   |-- tesseract.exe
    |   |-- tessdata/
-   |-- Precheck_OCR.py
-   |-- logger_config.py
-   |-- settings_gui.py
-   |-- settings_cli.py
-   |-- coordinate_adjuster.py
-   |-- coordinate_helper.py
-   |-- launcher.py
-   |-- start.bat
-   |-- config.json
-   |-- abbreviations.json
-   |-- requirements.txt
-   |-- README.md
+   |-- ai_verifier.py               # AI-powered verification module
+   |-- comparison_engine.py         # Core field comparison logic
+   |-- launcher.py                  # Main launcher with setup wizard
+   |-- ocr_provider.py             # OCR engine management
+   |-- settings_gui.py             # GUI coordinate setup tool
+   |-- settings_cli.py             # Command-line setup tool
+   |-- settings_manager.py         # Configuration management
+   |-- streamlit_app.py            # Web monitoring dashboard
+   |-- streamlit_ai_page.py        # AI settings interface
+   |-- verification_controller.py   # Main verification engine
+   |-- logger_config.py            # Logging configuration
+   |-- start.bat                   # Windows batch launcher
+   |-- config.json                 # Main configuration file
+   |-- abbreviations.json          # Pharmacy abbreviations database
+   |-- requirements.txt            # Python dependencies
+   |-- README.md                   # This documentation
+   |-- AGENTS.md                   # Development guidelines
+   |-- 1080laptop.json            # Sample coordinate config (1080p)
+   |-- 4kpc.json                  # Sample coordinate config (4K)
+   |-- __pycache__/               # Python cache directory
+   |-- config_backups/            # Automatic configuration backups
+   |-- venv/ or .venv/            # Python virtual environment (optional)
    ```
 
 ### "GUI won't start"
@@ -549,11 +563,6 @@ If you specifically need Tesseract, try these solutions:
 
 🚀 **With Automatic OCR Selection**: OCR issues should be minimal! The system now automatically selects and configures the best OCR engine for your hardware.
 
-**Quick OCR Diagnostics:**
-```bash
-# Test the automatic OCR selection
-python test_auto_ocr.py
-```
 
 **If you're having OCR issues:**
 
@@ -649,22 +658,6 @@ This means the coordinate regions need adjustment for your specific setup. **Use
 
 ---
 
-## 📁 File Structure
-
-After cleanup, here's what each file does:
-
-| File | Purpose |
-|------|---------|
-| `launcher.py` | **Start here!** Main launcher with setup wizard |
-| `start.bat` | **Windows users:** Double-click to launch |
-| `settings_gui.py` | **Coordinate setup:** Drag & drop region selection |
-| `streamlit_app.py` | **Web monitoring:** Modern dashboard interface |
-| `verification_controller.py` | **Core engine:** The verification logic |
-| `settings_manager.py` | **Configuration:** Manages settings and backups |
-| `config.json` | **Your settings:** Coordinates and thresholds |
-
----
-
 ## 📈 Advanced Usage
 
 ### Running 24/7
@@ -714,28 +707,12 @@ After cleanup, here's what each file does:
 4. **Check validation** before running monitoring
 5. **Use the smallest area** based on your software, avoid box, line, or any other artifact that may interfere with the OCR
 6. **Adjust matching thresholds** based on your data entry habits, pharamcy may have different sig translation
-5. **Monitor logs** to fine-tune accuracy
+7. **Monitor logs** to fine-tune accuracy
+8. **Prompt Engineering** for better AI response
 
 ---
 
 ## 📈 Future Improvements - My favorite part
-
-### 🎉 Recently Implemented: Automatic OCR Selection
-
-**Just Released!** Intelligent OCR provider selection with GPU detection:
-
-✅ **Smart GPU Detection**: Automatically detects CUDA-compatible GPUs using PyTorch  
-✅ **Optimal Performance**: Always selects the best provider for your hardware  
-✅ **Zero Configuration**: Works out-of-the-box with optimal settings  
-✅ **Graceful Fallback**: Falls back intelligently when hardware changes  
-✅ **Clear Logging**: Detailed logs explain selection decisions  
-
-**Decision Priority Algorithm:**
-1. **EasyOCR + GPU** → Best accuracy (90%+) when GPU available
-2. **Tesseract** → Best speed when no GPU available  
-3. **EasyOCR CPU** → Fallback option for compatibility
-
-This represents a major step toward the intelligent, hardware-aware system envisioned below.
 
 ### 🚀 Next Phase: Advanced OCR Integration
 

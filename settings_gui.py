@@ -45,7 +45,7 @@ from typing import Dict, Any, Optional, Tuple
 class SettingsGUI:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Pharmacy Verification - Settings & Coordinate Adjuster v2.0")
+        self.root.title("Settings")
         self.root.geometry("1700x900")
         self.root.minsize(1500, 800)
         
@@ -83,10 +83,12 @@ class SettingsGUI:
         # Initialize UI variables
         self.field_var: tk.StringVar = tk.StringVar()
         self.region_var: tk.StringVar = tk.StringVar(value="entered")
+        self.verification_method_var: tk.StringVar = tk.StringVar()
         self.coord_vars: Dict[str, tk.StringVar] = {}
         
         # UI components that will be created
         self.field_combo: Optional[ttk.Combobox] = None
+        self.verification_method_combo: Optional[ttk.Combobox] = None
         self.status_label: Optional[ttk.Label] = None
         self.canvas_frame: Optional[ttk.Frame] = None
         self.scrollable_frame: Optional[ttk.Frame] = None
@@ -383,6 +385,13 @@ class SettingsGUI:
         self.radio_entered.pack(anchor=tk.W)
         self.radio_source.pack(anchor=tk.W)
         self.radio_trigger.pack(anchor=tk.W)
+        
+        # Verification Method selection
+        ttk.Label(select_frame, text="Verification Method:", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(10, 0))
+        self.verification_method_combo = ttk.Combobox(select_frame, textvariable=self.verification_method_var, width=55, state="disabled")
+        self.verification_method_combo['values'] = ["fuzzy", "ai"]
+        self.verification_method_combo.pack(pady=(0, 10), fill=tk.X)
+        self.verification_method_combo.bind('<<ComboboxSelected>>', self.on_verification_method_change)
         
         # Enhanced coordinate controls with better layout
         coord_frame = ttk.LabelFrame(parent, text="Coordinates", padding=10)
@@ -1155,6 +1164,9 @@ class SettingsGUI:
             self.radio_trigger.pack(anchor=tk.W)
             self.region_var.set("trigger")
             self.current_region_type = "trigger"
+            if self.verification_method_combo:
+                self.verification_method_combo.set('')
+                self.verification_method_combo.config(state='disabled')
         else:
             self.radio_trigger.pack_forget()
             self.radio_entered.pack(anchor=tk.W)
@@ -1162,6 +1174,13 @@ class SettingsGUI:
             if self.region_var.get() == "trigger":
                 self.region_var.set("entered")
             self.current_region_type = self.region_var.get()
+            
+            # Update verification method display
+            if self.config and self.verification_method_combo:
+                field_config = self.config["regions"]["fields"].get(self.current_field, {})
+                current_method = field_config.get("verification_method", "fuzzy")
+                self.verification_method_var.set(current_method)
+                self.verification_method_combo.config(state='readonly')
             
         self.update_coordinate_display()
         self.draw_all_rectangles()
@@ -1173,6 +1192,18 @@ class SettingsGUI:
         self.update_coordinate_display()
         self.draw_all_rectangles()
         self.update_status(f"Selected region: {self.current_region_type}")
+
+    def on_verification_method_change(self, event=None):
+        """Handle verification method selection change."""
+        if not self.config or not self.current_field or self.current_field == "trigger":
+            return
+
+        new_method = self.verification_method_var.get()
+        if self.config["regions"]["fields"].get(self.current_field):
+            self.config["regions"]["fields"][self.current_field]["verification_method"] = new_method
+            self.update_status(f"Verification for '{self.current_field}' set to '{new_method}'")
+            if self.auto_save.get():
+                self.save_config()
     
     def update_coordinate_display(self):
         """Update coordinate entry fields with current values."""

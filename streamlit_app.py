@@ -26,6 +26,7 @@ import threading
 import subprocess
 import sys
 from typing import Dict, Any, List, Optional, Tuple
+from streamlit_ai_page import ai_config_page
 
 class SimplePharmacyApp:
     def __init__(self):
@@ -75,7 +76,7 @@ class SimplePharmacyApp:
 
     def coordinate_setup_page(self):
         """Launch the existing GUI for coordinate setup"""
-        st.title("📍 Pharmacy Verification - Coordinate Setup")
+        st.title("⚙️ Settings")
         st.info("🎯 **Use the proven GUI tool for easy coordinate setup**")
         
         if not self.config:
@@ -166,13 +167,18 @@ class SimplePharmacyApp:
 
         st.markdown("---")
         
+        # Verification Method Settings
+        self.show_verification_method_settings()
+
+        st.markdown("---")
+        
         # Optional Fields Settings
         self.show_optional_fields_settings()
         
         st.markdown("---")
         
         # GUI launcher section
-        st.subheader("🛠️ Launch Coordinate Setup Tool")
+        st.subheader("🛠️ Launch Settings GUI")
         
         col1, col2 = st.columns([2, 1])
         
@@ -639,12 +645,82 @@ class SimplePharmacyApp:
             except Exception as e:
                 st.error(f"❌ Failed to save threshold settings: {e}")
 
+    def show_verification_method_settings(self):
+        """Display and allow editing of verification methods for each field."""
+        st.subheader("🤖 Verification Methods")
+        
+        if not self.config:
+            st.warning("No configuration loaded.")
+            return
+
+        st.info("💡 Choose the verification method for each field. 'AI' is available for local LLMs without an API key.")
+
+        fields_config = self.config.get("regions", {}).get("fields", {})
+
+        # Get all fields to show
+        field_map = {
+            "patient_name": "👤 Patient Name",
+            "prescriber_name": "👨‍⚕️ Prescriber",
+            "drug_name": "💊 Drug Name",
+            "direction_sig": "📝 Sig/Instructions",
+            "patient_dob": "🎂 Patient DOB",
+            "patient_address": "🏠 Patient Address",
+            "patient_phone": "📞 Patient Phone",
+            "prescriber_address": "🏥 Prescriber Address"
+        }
+        
+        mandatory_fields = ["patient_name", "prescriber_name", "drug_name", "direction_sig"]
+        enabled_optional_fields = [k for k, v in self.config.get("optional_fields_enabled", {}).items() if v]
+        all_fields = mandatory_fields + enabled_optional_fields
+
+        changes_made = False
+        
+        col1, col2 = st.columns(2)
+        
+        for i, field_name in enumerate(all_fields):
+            col = col1 if i % 2 == 0 else col2
+            with col:
+                field_label = field_map.get(field_name, field_name.replace('_', ' ').title())
+                current_method = fields_config.get(field_name, {}).get("verification_method", "fuzzy")
+                
+                options = ["fuzzy", "ai"]
+                
+                # Ensure current_method is valid
+                if current_method not in options:
+                    current_method = "fuzzy"
+
+                try:
+                    current_index = options.index(current_method)
+                except ValueError:
+                    current_index = 0
+
+                new_method = st.selectbox(
+                    field_label,
+                    options=options,
+                    index=current_index,
+                    key=f"method_{field_name}"
+                )
+
+                if new_method != current_method:
+                    if field_name not in self.config.get("regions", {}).get("fields", {}):
+                        self.config["regions"]["fields"][field_name] = {}
+                    self.config["regions"]["fields"][field_name]["verification_method"] = new_method
+                    changes_made = True
+
+        if changes_made:
+            self.save_config_changes()
+
     def monitoring_page(self):
         """Display the monitoring/logging page with live OCR and scores"""
         st.title("📊 Pharmacy Verification Monitor")
         
         # Automation settings section
         self.show_automation_settings()
+        
+        st.markdown("---")
+        
+        # Timing settings section
+        self.show_timing_settings()
         
         # Control buttons
         col1, col2, col3, col4 = st.columns(4)
@@ -740,6 +816,121 @@ class SimplePharmacyApp:
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Failed to save automation settings: {e}")
+
+    def show_timing_settings(self):
+        """Display timing settings section"""
+        st.subheader("⏱️ Timing Settings")
+        
+        if not self.config:
+            st.warning("No configuration loaded. Please set up coordinates first.")
+            return
+            
+        # Get current timing settings
+        timing_config = self.config.get("timing", {})
+        
+        st.info("💡 **Timing Settings:** Control how fast the system polls for changes and waits between operations.")
+        
+        # Create timing controls in two columns
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Polling & Detection:**")
+            
+            fast_polling = st.number_input(
+                "🔄 Fast polling (seconds)",
+                min_value=0.1,
+                max_value=5.0,
+                value=timing_config.get("fast_polling_seconds", 0.2),
+                step=0.1,
+                help="How often to check for screen changes when active"
+            )
+            
+            max_static_sleep = st.number_input(
+                "😴 Max static sleep (seconds)",
+                min_value=0.5,
+                max_value=10.0,
+                value=timing_config.get("max_static_sleep_seconds", 2.0),
+                step=0.5,
+                help="Sleep time when no screen activity detected"
+            )
+            
+            same_rx_wait = st.number_input(
+                "🔄 Same Rx cooldown (seconds)",
+                min_value=1.0,
+                max_value=30.0,
+                value=timing_config.get("same_prescription_wait_seconds", 3.0),
+                step=1.0,
+                help="Prevent duplicate processing of the same prescription"
+            )
+        
+        with col2:
+            st.write("**Verification Delays:**")
+            
+            trigger_content_delay = st.number_input(
+                "⚡ Trigger content load delay (seconds)",
+                min_value=0.0,
+                max_value=5.0,
+                value=timing_config.get("trigger_content_load_delay_seconds", 0.5),
+                step=0.1,
+                help="Wait after trigger detection for content to fully load"
+            )
+            
+            verification_wait = st.number_input(
+                "📋 Verification wait (seconds)",
+                min_value=0.1,
+                max_value=10.0,
+                value=timing_config.get("verification_wait_seconds", 0.5),
+                step=0.1,
+                help="Additional wait before taking screenshot for verification"
+            )
+            
+            trigger_check_interval = st.number_input(
+                "🎯 Trigger check interval (seconds)",
+                min_value=0.1,
+                max_value=5.0,
+                value=timing_config.get("trigger_check_interval_seconds", 1.0),
+                step=0.1,
+                help="How often to check for trigger text"
+            )
+            
+            ocr_retry_delay = st.number_input(
+                "🔄 OCR retry delay (seconds)",
+                min_value=0.1,
+                max_value=3.0,
+                value=timing_config.get("ocr_retry_delay_seconds", 0.5),
+                step=0.1,
+                help="Delay between OCR retry attempts for empty results"
+            )
+        
+        # Show current timing summary
+        st.write("**Current Timing Configuration:**")
+        timing_summary = f"Fast Poll: {fast_polling}s | Static Sleep: {max_static_sleep}s | Content Load: {trigger_content_delay}s | Verification: {verification_wait}s | OCR Retry: {ocr_retry_delay}s"
+        st.code(timing_summary)
+        
+        # Update timing settings
+        new_timing_config = {
+            "fast_polling_seconds": fast_polling,
+            "max_static_sleep_seconds": max_static_sleep,
+            "same_prescription_wait_seconds": same_rx_wait,
+            "trigger_content_load_delay_seconds": trigger_content_delay,
+            "verification_wait_seconds": verification_wait,
+            "trigger_check_interval_seconds": trigger_check_interval,
+            "ocr_retry_delay_seconds": ocr_retry_delay
+        }
+        
+        # Check if settings changed
+        if new_timing_config != timing_config:
+            self.config["timing"] = new_timing_config
+            
+            # Save the configuration
+            try:
+                self.settings_manager.config = self.config
+                self.settings_manager.save_config(create_backup=True)
+                st.success("✅ Timing settings updated!")
+                time.sleep(0.5)
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Failed to save timing settings: {e}")
 
     def show_live_terminal_output(self):
         """Display live terminal output from the verification process"""
@@ -914,6 +1105,10 @@ class SimplePharmacyApp:
             st.session_state.verification_running = False
             st.session_state.verification_controller = None
 
+    def ai_config_page(self):
+        """Displays the AI configuration page"""
+        ai_config_page(self.config)
+
     def run(self):
         """Main application runner"""        
         # Sidebar navigation
@@ -922,7 +1117,7 @@ class SimplePharmacyApp:
         
         page = st.sidebar.selectbox(
             "Navigate to:",
-            ["📊 Monitor & Logs", "📍 Setup Coordinates (GUI)"]
+            ["📊 Monitor & Logs", "⚙️ Settings - GUI", "🧠 AI Configuration"]
         )
         
         st.sidebar.markdown("---")
@@ -936,8 +1131,10 @@ class SimplePharmacyApp:
         # Main content based on selected page
         if page == "📊 Monitor & Logs":
             self.monitoring_page()
-        elif page == "📍 Setup Coordinates (GUI)":
+        elif page == "⚙️ Settings - GUI":
             self.coordinate_setup_page()
+        elif page == "🧠 AI Configuration":
+            self.ai_config_page()
 
 def main():
     """Main application entry point"""

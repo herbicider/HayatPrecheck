@@ -174,7 +174,7 @@ class VerificationController:
         
         keywords = trigger_config.get("keywords", ["pre", "check", "rx"])
         sim_threshold = trigger_config.get("keyword_similarity_threshold", 90)
-        min_matches = trigger_config.get("min_keyword_matches", 2)
+        min_matches = trigger_config.get("min_keyword_matches", 3)
         
         from rapidfuzz import fuzz
         # Process text more thoroughly for keyword matching
@@ -261,6 +261,46 @@ class VerificationController:
             
         return False
     
+    def _ocr_with_retry(self, screenshot: Image.Image, region: Tuple[int, int, int, int], field_identifier: str, max_retries: int = 3) -> str:
+        """
+        Perform OCR with retry mechanism for empty results.
+        
+        Args:
+            screenshot: PIL Image to process
+            region: Tuple of (x1, y1, x2, y2) coordinates
+            field_identifier: String identifier for logging
+            max_retries: Maximum number of retry attempts
+            
+        Returns:
+            OCR text result, empty string if all retries fail
+        """
+        retry_config = self.config.get("timing", {})
+        retry_delay = retry_config.get("ocr_retry_delay_seconds", 0.5)
+        
+        for attempt in range(max_retries):
+            try:
+                # Perform OCR
+                text = self.ocr_provider.get_text_from_region(screenshot, region, field_identifier)
+                
+                # Check if we got meaningful text
+                if text and text.strip():
+                    if attempt > 0:
+                        logging.info(f"OCR retry success for {field_identifier} on attempt {attempt + 1}: '{text[:50]}...'")
+                    return text
+                else:
+                    if attempt < max_retries - 1:  # Not the last attempt
+                        logging.warning(f"OCR attempt {attempt + 1} for {field_identifier} returned empty. Retrying in {retry_delay}s...")
+                        time.sleep(retry_delay)
+                    else:
+                        logging.error(f"OCR failed for {field_identifier} after {max_retries} attempts. Final result: empty")
+                        
+            except Exception as e:
+                logging.error(f"OCR attempt {attempt + 1} for {field_identifier} failed with error: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+        
+        return ""  # All attempts failed
+    
     def _perform_ocr_on_all_fields(self, screenshot: Image.Image) -> Dict[str, Tuple[str, str]]:
         """Performs OCR on all configured fields and returns the raw text."""
         logging.info("Starting OCR processing on all fields...")
@@ -280,11 +320,20 @@ class VerificationController:
             logging.info(f"Processing OCR for field: {field_name}")
             try:
                 logging.debug(f"OCR for {field_name} entered region: {config['entered']}")
-                entered_text = self.ocr_provider.get_text_from_region(screenshot, tuple(config["entered"]), f"{field_name}_entered")
+                entered_text = self._ocr_with_retry(screenshot, tuple(config["entered"]), f"{field_name}_entered")
+                
                 logging.debug(f"OCR for {field_name} source region: {config['source']}")
-                source_text = self.ocr_provider.get_text_from_region(screenshot, tuple(config["source"]), f"{field_name}_source")
+                source_text = self._ocr_with_retry(screenshot, tuple(config["source"]), f"{field_name}_source")
+                
                 ocr_results[field_name] = (entered_text, source_text)
                 logging.info(f"Completed OCR for field: {field_name} | Entered: '{entered_text[:50]}...' | Source: '{source_text[:50]}...'")
+                
+                # Log warning if either field is empty after retries
+                if not entered_text.strip():
+                    logging.warning(f"Field {field_name} entered text is empty after OCR retries")
+                if not source_text.strip():
+                    logging.warning(f"Field {field_name} source text is empty after OCR retries")
+                    
             except Exception as e:
                 logging.error(f"Error processing OCR for {field_name}: {e}")
                 ocr_results[field_name] = ("", "")
@@ -373,6 +422,11 @@ class VerificationController:
                         if current_rx_number:
                             self.processed_rx_times[current_rx_number] = now
 
+                        # Add configurable delay to allow content to fully load after trigger
+                        content_load_delay = self.config.get("timing", {}).get("trigger_content_load_delay_seconds", 0.5)
+                        logging.debug(f"Waiting {content_load_delay}s for content to load after trigger detection...")
+                        time.sleep(content_load_delay)
+                        
                         time.sleep(self.config["timing"]["verification_wait_seconds"])
                         logging.info("Taking fresh screenshot for verification...")
                         fresh_screenshot = pyautogui.screenshot()
