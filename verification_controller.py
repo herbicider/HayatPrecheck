@@ -174,7 +174,7 @@ class VerificationController:
         
         keywords = trigger_config.get("keywords", ["pre", "check", "rx"])
         sim_threshold = trigger_config.get("keyword_similarity_threshold", 90)
-        min_matches = trigger_config.get("min_keyword_matches", 3)
+        min_matches = trigger_config.get("min_keyword_matches", 2)
         
         from rapidfuzz import fuzz
         # Process text more thoroughly for keyword matching
@@ -341,7 +341,7 @@ class VerificationController:
         logging.info(f"Completed OCR processing for {len(ocr_results)} fields")
         return ocr_results
 
-    def _verify_all_fields(self, screenshot: Image.Image):
+    def _verify_all_fields(self, screenshot: Image.Image, ocr_results: Optional[Dict[str, Tuple[str, str]]] = None):
         """Run verification on all fields and show overlay."""
         if self.verification_in_progress:
             logging.debug("Verification already in progress, skipping...")
@@ -351,7 +351,10 @@ class VerificationController:
             self.verification_in_progress = True
             logging.info("Running field verification...")
             
-            ocr_results = self._perform_ocr_on_all_fields(screenshot)
+            # Use provided OCR results or perform OCR if not provided
+            if ocr_results is None:
+                ocr_results = self._perform_ocr_on_all_fields(screenshot)
+            
             results = self.comparison_engine.verify_fields(ocr_results)
             
             log_rx_summary(self.last_rx_number or "", results)
@@ -382,10 +385,14 @@ class VerificationController:
         while not self.should_stop:
             try:
                 loop_count += 1
-                if loop_count % 10 == 0:  # Log every 10th iteration to show it's running
-                    logging.info(f"Monitoring loop running... (iteration {loop_count})")
-                
                 screenshot = pyautogui.screenshot()
+                
+                if loop_count % 10 == 0:  # Log every 10th iteration to show it's running
+                    # Add debug info showing what's in the trigger area
+                    trigger_region = tuple(self.config["regions"]["trigger"])
+                    trigger_text = self.ocr_provider.get_text_from_region(screenshot, trigger_region)
+                    logging.info(f"Monitoring loop running... (iteration {loop_count}) | Trigger area reads: '{trigger_text.strip()}'")
+                
                 screen_changed = self._has_screen_changed(screenshot)
                 if screen_changed:
                     consecutive_no_change = 0
@@ -439,7 +446,7 @@ class VerificationController:
                         if self.last_verified_signature and current_sig and current_sig == self.last_verified_signature and (not current_rx_number or current_rx_number == self.last_rx_number):
                             logging.info("Prescription signature unchanged; skipping duplicate verification")
                         else:
-                            self._verify_all_fields(fresh_screenshot)
+                            self._verify_all_fields(fresh_screenshot, ocr_results)
                 elif self.recently_triggered:
                     reset_delay = self.advanced_settings.get("trigger", {}).get("lost_reset_delay_seconds", 5.0)
                     if self.last_seen_trigger_time and (now - self.last_seen_trigger_time) > reset_delay:
