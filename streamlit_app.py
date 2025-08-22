@@ -89,7 +89,7 @@ class SimplePharmacyApp:
         regions = self.config.get('regions', {})
         
         # Check if configuration is complete
-        required_regions = ['trigger']
+        required_regions = ['trigger', 'rx_number']
         required_fields = ['patient_name', 'prescriber_name', 'drug_name', 'direction_sig']
         
         # Add enabled optional fields to the list of fields to check for completeness
@@ -101,10 +101,12 @@ class SimplePharmacyApp:
         config_complete = True
         missing_items = []
         
-        # Check trigger
-        if 'trigger' not in regions:
-            config_complete = False
-            missing_items.append("🎯 Trigger region")
+        # Check required regions
+        for region_name in required_regions:
+            if region_name not in regions:
+                config_complete = False
+                region_display = region_name.replace('_', ' ').title()
+                missing_items.append(f"🎯 {region_display} region")
         
         # Check fields
         fields = regions.get('fields', {})
@@ -137,9 +139,15 @@ class SimplePharmacyApp:
             # Show what's configured so far (only when there are missing items)
             st.subheader("📋 Current Status")
             
-            if 'trigger' in regions:
-                st.success("✅ **Trigger region:** Configured")
+            # Check regions
+            for region_name in required_regions:
+                region_display = region_name.replace('_', ' ').title()
+                if region_name in regions:
+                    st.success(f"✅ **{region_display} region:** Configured")
+                else:
+                    st.warning(f"⚠️ **{region_display} region:** Not configured")
             
+            # Check fields
             for field_name in fields_to_check:
                 field_display = field_name.replace('_', ' ').title()
                 
@@ -169,6 +177,11 @@ class SimplePharmacyApp:
         
         # Verification Method Settings
         self.show_verification_method_settings()
+
+        st.markdown("---")
+        
+        # Trigger Detection Settings
+        self.show_trigger_detection_settings()
 
         st.markdown("---")
         
@@ -515,6 +528,95 @@ class SimplePharmacyApp:
         except Exception as e:
             st.error(f"❌ Failed to save settings: {e}")
 
+    def show_trigger_detection_settings(self):
+        """Display and allow editing of trigger detection settings"""
+        st.subheader("🎯 Trigger Detection Settings")
+        
+        if not self.config:
+            st.warning("No configuration loaded. Please set up coordinates first.")
+            return
+            
+        st.info("💡 **Trigger Settings:** Configure what keywords and matching criteria to use for detecting new prescriptions.")
+        
+        # Get current advanced settings
+        advanced_settings = self.config.get("advanced_settings", {})
+        trigger_config = advanced_settings.get("trigger", {})
+        
+        # Keywords settings
+        st.write("**🔍 Detection Keywords:**")
+        current_keywords = trigger_config.get("keywords", ["pre", "check", "rx"])
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            keywords_text = st.text_input(
+                "Keywords (comma-separated):",
+                value=", ".join(current_keywords),
+                help="Words to look for in the trigger area (e.g., 'pre, check, rx')"
+            )
+            st.caption("🔎 These words will trigger prescription verification")
+        
+        with col2:
+            min_matches = st.number_input(
+                "Minimum keyword matches:",
+                min_value=1,
+                max_value=10,
+                value=trigger_config.get("min_keyword_matches", 2),
+                step=1,
+                help="How many keywords must match to trigger verification"
+            )
+            st.caption("🎯 Required matches to activate")
+        
+        # Matching settings
+        st.write("**⚙️ Matching Settings:**")
+        
+        col3, col4 = st.columns(2)
+        
+        with col3:
+            similarity_threshold = st.slider(
+                "🎯 Keyword similarity threshold",
+                min_value=50,
+                max_value=100,
+                value=trigger_config.get("keyword_similarity_threshold", 90),
+                step=5,
+                help="How closely words must match keywords (higher = more strict)"
+            )
+            st.caption("📊 90%+ recommended for accuracy")
+        
+        with col4:
+            reset_delay = st.number_input(
+                "🔄 Reset delay (seconds)",
+                min_value=1.0,
+                max_value=30.0,
+                value=trigger_config.get("lost_reset_delay_seconds", 5.0),
+                step=1.0,
+                help="How long to wait before resetting when trigger is lost"
+            )
+            st.caption("⏱️ Time before accepting new prescriptions")
+        
+        # Show current configuration summary
+        st.write("**📋 Current Trigger Configuration:**")
+        keywords_list = [kw.strip() for kw in keywords_text.split(",") if kw.strip()]
+        config_summary = f"Keywords: {keywords_list} | Min matches: {min_matches} | Similarity: {similarity_threshold}% | Reset: {reset_delay}s"
+        st.code(config_summary)
+        
+        # Update settings if changed
+        new_trigger_config = {
+            "keywords": keywords_list,
+            "keyword_similarity_threshold": similarity_threshold,
+            "min_keyword_matches": min_matches,
+            "lost_reset_delay_seconds": reset_delay
+        }
+        
+        if new_trigger_config != trigger_config:
+            if "advanced_settings" not in self.config:
+                self.config["advanced_settings"] = {}
+            if "trigger" not in self.config["advanced_settings"]:
+                self.config["advanced_settings"]["trigger"] = {}
+            
+            self.config["advanced_settings"]["trigger"].update(new_trigger_config)
+            self.save_config_changes()
+
     def show_optional_fields_settings(self):
         """Display and allow editing of optional fields to verify."""
         st.subheader("➕ Optional Verification Fields")
@@ -837,74 +939,91 @@ class SimplePharmacyApp:
             st.write("**Polling & Detection:**")
             
             fast_polling = st.number_input(
-                "🔄 Fast polling (seconds)",
+                "🔄 Fast polling - Active monitoring",
                 min_value=0.1,
                 max_value=5.0,
                 value=timing_config.get("fast_polling_seconds", 0.2),
                 step=0.1,
-                help="How often to check for screen changes when active"
+                help="How often to check for screen changes when active (lower = more responsive but uses more CPU)"
             )
+            st.caption("⚡ How quickly the system detects new prescriptions")
             
             max_static_sleep = st.number_input(
-                "😴 Max static sleep (seconds)",
+                "😴 Max static sleep - Idle mode",
                 min_value=0.5,
                 max_value=10.0,
                 value=timing_config.get("max_static_sleep_seconds", 2.0),
                 step=0.5,
-                help="Sleep time when no screen activity detected"
+                help="Sleep time when no screen activity detected (higher = less CPU usage when idle)"
             )
+            st.caption("💤 How long to wait when nothing is happening")
             
             same_rx_wait = st.number_input(
-                "🔄 Same Rx cooldown (seconds)",
+                "🔄 Same Rx cooldown - Duplicate prevention",
                 min_value=1.0,
                 max_value=30.0,
                 value=timing_config.get("same_prescription_wait_seconds", 3.0),
                 step=1.0,
-                help="Prevent duplicate processing of the same prescription"
+                help="Prevent duplicate processing of the same prescription (higher = less likely to re-process same Rx)"
             )
+            st.caption("🚫 Prevents processing the same prescription twice")
+            
+            ocr_max_retries = st.number_input(
+                "🔁 OCR max retries - Attempt count",
+                min_value=1,
+                max_value=10,
+                value=timing_config.get("ocr_max_retries", 3),
+                step=1,
+                help="Maximum number of OCR attempts for empty results (higher = more persistent but slower)"
+            )
+            st.caption("🎯 How many times to retry if OCR returns empty text")
         
         with col2:
             st.write("**Verification Delays:**")
             
             trigger_content_delay = st.number_input(
-                "⚡ Trigger content load delay (seconds)",
+                "⚡ Trigger content load - Wait for UI",
                 min_value=0.0,
                 max_value=5.0,
                 value=timing_config.get("trigger_content_load_delay_seconds", 0.5),
                 step=0.1,
-                help="Wait after trigger detection for content to fully load"
+                help="Wait after trigger detection for content to fully load (increase if fields appear slowly)"
             )
+            st.caption("⏳ Lets the screen finish loading after detection")
             
             verification_wait = st.number_input(
-                "📋 Verification wait (seconds)",
+                "📋 Verification wait - Pre-capture delay",
                 min_value=0.1,
                 max_value=10.0,
                 value=timing_config.get("verification_wait_seconds", 0.5),
                 step=0.1,
-                help="Additional wait before taking screenshot for verification"
+                help="Additional wait before taking screenshot for verification (increase if data is still changing)"
             )
+            st.caption("📸 Extra pause before taking verification screenshot")
             
             trigger_check_interval = st.number_input(
-                "🎯 Trigger check interval (seconds)",
+                "🎯 Trigger check interval - Detection frequency",
                 min_value=0.1,
                 max_value=5.0,
                 value=timing_config.get("trigger_check_interval_seconds", 1.0),
                 step=0.1,
-                help="How often to check for trigger text"
+                help="How often to check for trigger text (lower = faster detection but more CPU usage)"
             )
+            st.caption("🔍 How often to look for 'pre-check' trigger")
             
             ocr_retry_delay = st.number_input(
-                "🔄 OCR retry delay (seconds)",
+                "🔄 OCR retry delay - Between attempts",
                 min_value=0.1,
                 max_value=3.0,
                 value=timing_config.get("ocr_retry_delay_seconds", 0.5),
                 step=0.1,
-                help="Delay between OCR retry attempts for empty results"
+                help="Delay between OCR retry attempts for empty results (increase if OCR is unstable)"
             )
+            st.caption("⏱️ Pause between OCR retries when text is unclear")
         
         # Show current timing summary
         st.write("**Current Timing Configuration:**")
-        timing_summary = f"Fast Poll: {fast_polling}s | Static Sleep: {max_static_sleep}s | Content Load: {trigger_content_delay}s | Verification: {verification_wait}s | OCR Retry: {ocr_retry_delay}s"
+        timing_summary = f"Fast Poll: {fast_polling}s | Static Sleep: {max_static_sleep}s | Content Load: {trigger_content_delay}s | Verification: {verification_wait}s | OCR Retry: {ocr_retry_delay}s ({ocr_max_retries} attempts)"
         st.code(timing_summary)
         
         # Update timing settings
@@ -915,7 +1034,8 @@ class SimplePharmacyApp:
             "trigger_content_load_delay_seconds": trigger_content_delay,
             "verification_wait_seconds": verification_wait,
             "trigger_check_interval_seconds": trigger_check_interval,
-            "ocr_retry_delay_seconds": ocr_retry_delay
+            "ocr_retry_delay_seconds": ocr_retry_delay,
+            "ocr_max_retries": ocr_max_retries
         }
         
         # Check if settings changed

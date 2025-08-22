@@ -1,25 +1,32 @@
 {
   "timing": {
     "fast_polling_seconds": 0.2,
-    "trigger_check_interval_seconds": 1.0,
-    "same_prescription_wait_seconds": 3.0,
     "max_static_sleep_seconds": 2.0,
-    "verification_wait_seconds": 0.5,
+    "same_prescription_wait_seconds": 3.0,
     "trigger_content_load_delay_seconds": 0.5,
-    "ocr_retry_delay_seconds": 0.5
+    "verification_wait_seconds": 0.5,
+    "trigger_check_interval_seconds": 1.0,
+    "ocr_retry_delay_seconds": 0.5,
+    "ocr_max_retries": 2
   },
   "thresholds": {
     "patient": 80,
-    "prescriber": 80,
+    "prescriber": 65,
     "drug": 80,
     "sig": 80
   },
   "regions": {
     "trigger": [
-      4,
-      173,
-      141,
-      188
+      436,
+      342,
+      490,
+      366
+    ],
+    "rx_number": [
+      97,
+      170,
+      150,
+      192
     ],
     "fields": {
       "patient_name": {
@@ -30,10 +37,10 @@
           279
         ],
         "source": [
-          520,
-          512,
-          939,
-          532
+          524,
+          524,
+          978,
+          548
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "patient",
@@ -47,10 +54,10 @@
           353
         ],
         "source": [
-          517,
-          390,
-          946,
-          414
+          526,
+          398,
+          944,
+          421
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "prescriber",
@@ -64,10 +71,10 @@
           532
         ],
         "source": [
-          528,
-          652,
-          1031,
-          675
+          535,
+          667,
+          968,
+          693
         ],
         "score_fn": "ratio",
         "threshold_key": "drug",
@@ -182,5 +189,32 @@
     "api_key": "",
     "system_prompt": "You are a pharmacist AI assistant verifying prescription data entry accuracy. \n\nYour task:\n1. Compare entered vs source text for each field\n2. Account for OCR errors, typos, and semantic equivalents\n3. For drug names: different dosages = different drugs (metformin 500mg \u2260 metformin 1000mg)\n4. For names: preserve format importance (John Smith \u2260 Smith John)\n\nResponse format (EXACTLY as shown):\npatient_name: [0-100 score]\nprescriber_name: [0-100 score] \ndrug_name: [0-100 score]\ndirection_sig: [0-100 score]\n\nOnly include fields that are provided. Use whole numbers only.",
     "user_prompt": "You are a pharmacist AI assistant verifying prescription data entry accuracy. \n\nYour task:\n1. Compare entered vs source text for each field\n2. Account for OCR errors, typos, and semantic equivalents\n3. For drug names: different dosages = different drugs (metformin 500mg \u2260 metformin 1000mg)\n4. For names: preserve format importance (John Smith \u2260 Smith John)\n\nResponse format (EXACTLY as shown):\npatient_name: [0-100 score]\nprescriber_name: [0-100 score] \ndrug_name: [0-100 score]\ndirection_sig: [0-100 score]\n\nOnly include fields that are provided. Use whole numbers only. No explanation, no reasoning, just numbers.\n\nPlease verify all prescription fields:\n\nPatient Name:\nEntered: {patient_name_entered}\nSource: {patient_name_source}\n\nPrescriber Name:\nEntered: {prescriber_name_entered}\nSource: {prescriber_name_source}\n\nDrug Name:\nEntered: {drug_name_entered}\nSource: {drug_name_source}\n\nDirections/Sig:\nEntered: {direction_sig_entered}\nSource: {direction_sig_source}"
+  },
+  "advanced_settings": {
+    "trigger": {
+      "keywords": [
+        "NEW"
+      ],
+      "keyword_similarity_threshold": 90,
+      "min_keyword_matches": 1,
+      "lost_reset_delay_seconds": 5.0
+    },
+    "overlay": {
+      "min_display_seconds": 3.0
+    },
+    "hashing": {
+      "crop_box": {
+        "left": 50,
+        "top": 150,
+        "right": 800,
+        "bottom": 500
+      },
+      "resize_to": [
+        32,
+        32
+      ],
+      "blur_radius": 0.5,
+      "bucket_size": 8
+    }
   }
 }

@@ -381,10 +381,14 @@ class SettingsGUI:
         self.radio_trigger = ttk.Radiobutton(region_frame, text="Trigger Detection", 
                                            variable=self.region_var, value="trigger", 
                                            command=self.on_region_change)
+        self.radio_rx_number = ttk.Radiobutton(region_frame, text="Rx Number Area", 
+                                           variable=self.region_var, value="rx_number", 
+                                           command=self.on_region_change)
         
         self.radio_entered.pack(anchor=tk.W)
         self.radio_source.pack(anchor=tk.W)
         self.radio_trigger.pack(anchor=tk.W)
+        self.radio_rx_number.pack(anchor=tk.W)
         
         # Verification Method selection
         ttk.Label(select_frame, text="Verification Method:", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(10, 0))
@@ -743,7 +747,7 @@ class SettingsGUI:
                 if is_enabled:
                     enabled_optional_fields.append(field)
 
-        field_options = ["trigger"] + mandatory_fields + enabled_optional_fields
+        field_options = ["trigger", "rx_number"] + mandatory_fields + enabled_optional_fields
         self.field_combo['values'] = sorted(list(set(field_options)))
     
     def update_status(self, message: str):
@@ -958,6 +962,8 @@ class SettingsGUI:
             # Get coordinates
             if self.current_field == "trigger":
                 coords = self.config["regions"]["trigger"]
+            elif self.current_field == "rx_number":
+                coords = self.config["regions"]["rx_number"]
             else:
                 coords = self.config["regions"]["fields"][self.current_field][self.current_region_type]
             
@@ -997,6 +1003,14 @@ class SettingsGUI:
                 issues.append("Trigger region: Invalid coordinate count")
             elif coords[0] >= coords[2] or coords[1] >= coords[3]:
                 issues.append("Trigger region: Invalid coordinate order")
+        
+        # Check rx_number region
+        if "rx_number" in self.config["regions"]:
+            coords = self.config["regions"]["rx_number"]
+            if len(coords) != 4:
+                issues.append("Rx Number region: Invalid coordinate count")
+            elif coords[0] >= coords[2] or coords[1] >= coords[3]:
+                issues.append("Rx Number region: Invalid coordinate order")
         
         # Check field regions
         for field_name, field_config in self.config["regions"]["fields"].items():
@@ -1130,6 +1144,8 @@ class SettingsGUI:
             # Update config
             if self.current_field == "trigger":
                 self.config["regions"]["trigger"] = [actual_x1, actual_y1, actual_x2, actual_y2]
+            elif self.current_field == "rx_number":
+                self.config["regions"]["rx_number"] = [actual_x1, actual_y1, actual_x2, actual_y2]
             else:
                 self.config["regions"]["fields"][self.current_field][self.current_region_type] = [
                     actual_x1, actual_y1, actual_x2, actual_y2
@@ -1161,17 +1177,29 @@ class SettingsGUI:
         if self.current_field == "trigger":
             self.radio_entered.pack_forget()
             self.radio_source.pack_forget()
+            self.radio_rx_number.pack_forget()
             self.radio_trigger.pack(anchor=tk.W)
             self.region_var.set("trigger")
             self.current_region_type = "trigger"
             if self.verification_method_combo:
                 self.verification_method_combo.set('')
                 self.verification_method_combo.config(state='disabled')
+        elif self.current_field == "rx_number":
+            self.radio_entered.pack_forget()
+            self.radio_source.pack_forget()
+            self.radio_trigger.pack_forget()
+            self.radio_rx_number.pack(anchor=tk.W)
+            self.region_var.set("rx_number")
+            self.current_region_type = "rx_number"
+            if self.verification_method_combo:
+                self.verification_method_combo.set('')
+                self.verification_method_combo.config(state='disabled')
         else:
             self.radio_trigger.pack_forget()
+            self.radio_rx_number.pack_forget()
             self.radio_entered.pack(anchor=tk.W)
             self.radio_source.pack(anchor=tk.W)
-            if self.region_var.get() == "trigger":
+            if self.region_var.get() in ["trigger", "rx_number"]:
                 self.region_var.set("entered")
             self.current_region_type = self.region_var.get()
             
@@ -1195,7 +1223,7 @@ class SettingsGUI:
 
     def on_verification_method_change(self, event=None):
         """Handle verification method selection change."""
-        if not self.config or not self.current_field or self.current_field == "trigger":
+        if not self.config or not self.current_field or self.current_field in ["trigger", "rx_number"]:
             return
 
         new_method = self.verification_method_var.get()

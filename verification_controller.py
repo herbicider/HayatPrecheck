@@ -154,15 +154,26 @@ class VerificationController:
         except Exception as e:
             logging.error(f"Error sending key press: {e}")
 
-    def _extract_rx_number(self, trigger_text: str) -> str:
-        """Extract the Rx number from the trigger text."""
-        patterns = [r'rx\s*-\s*(\d+)', r'rx\s+(\d+)', r'(\d{4,})']
-        text_lower = trigger_text.lower()
-        for pattern in patterns:
-            match = re.search(pattern, text_lower)
-            if match:
-                return match.group(1)
-        return ""
+    def _extract_rx_number(self, screenshot: Image.Image) -> str:
+        """Extract the Rx number from the rx_number region."""
+        try:
+            # Use separate rx_number region if available, otherwise fall back to trigger region
+            rx_region = self.config["regions"].get("rx_number")
+            if rx_region is None:
+                rx_region = self.config["regions"]["trigger"]
+            
+            rx_text = self.ocr_provider.get_text_from_region(screenshot, tuple(rx_region))
+            
+            patterns = [r'rx\s*-\s*(\d+)', r'rx\s+(\d+)', r'(\d{4,})']
+            text_lower = rx_text.lower()
+            for pattern in patterns:
+                match = re.search(pattern, text_lower)
+                if match:
+                    return match.group(1)
+            return ""
+        except Exception as e:
+            logging.error(f"Error extracting Rx number: {e}")
+            return ""
 
     def _check_trigger(self, screenshot: Image.Image) -> Tuple[bool, str]:
         """Check if the trigger text is present with enhanced keyword matching and OCR fallback."""
@@ -170,15 +181,44 @@ class VerificationController:
         trigger_region = tuple(self.config["regions"]["trigger"])
         trigger_text = self.ocr_provider.get_text_from_region(screenshot, trigger_region)
         
-
-        
         keywords = trigger_config.get("keywords", ["pre", "check", "rx"])
         sim_threshold = trigger_config.get("keyword_similarity_threshold", 90)
         min_matches = trigger_config.get("min_keyword_matches", 2)
         
+        # Debug: Log trigger check details (reduced frequency)
+        # Only log every 20 iterations to reduce spam
+        if hasattr(self, '_trigger_check_count'):
+            self._trigger_check_count += 1
+        else:
+            self._trigger_check_count = 1
+            
+        if self._trigger_check_count % 20 == 0:
+            logging.info(f"🔍 Checking trigger: '{trigger_text}' | Keywords: {keywords} | Need {min_matches} matches | Threshold: {sim_threshold}%")
+        
         from rapidfuzz import fuzz
-        # Process text more thoroughly for keyword matching
+        
+        # Process text for matching
         text_lower = trigger_text.lower()
+        
+        # Check if keywords should be treated as a single phrase
+        if len(keywords) > 1:
+            # Try matching the complete phrase first
+            full_phrase = " ".join(keywords)
+            phrase_similarity = fuzz.ratio(text_lower.strip(), full_phrase.lower())
+            
+            # Temporarily lower threshold to test
+            if phrase_similarity >= 80:  # Lowered from sim_threshold to 80 for testing
+                logging.info(f"✅ Full phrase match found: {phrase_similarity}%")
+                trigger_detected = True
+                rx_number = self._extract_rx_number(screenshot)
+                logging.info(f"✅ Trigger detected: '{trigger_text}' | Full phrase match: {phrase_similarity}% | Rx#: '{rx_number or 'None'}'")
+                return trigger_detected, rx_number
+            else:
+                logging.info(f"❌ Phrase match failed: {phrase_similarity}% < 80%")
+        else:
+            logging.info(f"🔧 Skipping phrase matching - only {len(keywords)} keyword(s)")
+        
+        # Fall back to individual keyword matching if phrase matching fails
         
         # Split text by both spaces and common separators to handle "pre-check" cases
         import re
@@ -194,19 +234,20 @@ class VerificationController:
             
             # Check direct word matches
             for w in text_words:
-                score = fuzz.ratio(w, kw)
+                score = fuzz.ratio(w, kw.lower())  # Make keyword lowercase for comparison
                 if score > best_match:
                     best_match = score
                     best_word = w
             
             # Also check substring matches for compound words like "pre-check"
             if best_match < sim_threshold:
+                kw_lower = kw.lower()  # Convert keyword to lowercase once
                 for w in text_words:
-                    if kw in w or w in kw:
+                    if kw_lower in w or w in kw_lower:
                         substring_score = max(
-                            fuzz.ratio(kw, w),
-                            fuzz.partial_ratio(kw, w),
-                            fuzz.partial_ratio(w, kw)
+                            fuzz.ratio(kw_lower, w),
+                            fuzz.partial_ratio(kw_lower, w),
+                            fuzz.partial_ratio(w, kw_lower)
                         )
                         if substring_score > best_match:
                             best_match = substring_score
@@ -214,7 +255,7 @@ class VerificationController:
             
             # Check against the full text for phrases like "pre-check"
             if best_match < sim_threshold:
-                full_text_score = fuzz.partial_ratio(kw, text_lower)
+                full_text_score = fuzz.partial_ratio(kw.lower(), text_lower)
                 if full_text_score > best_match:
                     best_match = full_text_score
                     best_word = f"(in full text)"
@@ -224,13 +265,15 @@ class VerificationController:
                 matched_keywords.append(f"{kw}→{best_word}({best_match:.1f})")
         
         trigger_detected = found_count >= min_matches
-        rx_number = self._extract_rx_number(trigger_text) if trigger_detected else ""
+        rx_number = self._extract_rx_number(screenshot) if trigger_detected else ""
         
         # Debug logging for trigger detection
         if trigger_detected:
-            logging.debug(f"Trigger detected: '{trigger_text}' | Matched: {matched_keywords}")
+            logging.info(f"✅ Trigger detected: '{trigger_text}' | Matched: {matched_keywords} | Rx#: '{rx_number or 'None'}'")
         else:
-            logging.debug(f"Trigger not detected: '{trigger_text}' | Found {found_count}/{min_matches} keywords: {matched_keywords}")
+            # Only log failures occasionally to avoid spam
+            if self._trigger_check_count % 50 == 0:
+                logging.info(f"❌ Trigger not detected: '{trigger_text}' | Found {found_count}/{min_matches} keywords: {matched_keywords}")
         
         return trigger_detected, rx_number
     
@@ -261,7 +304,7 @@ class VerificationController:
             
         return False
     
-    def _ocr_with_retry(self, screenshot: Image.Image, region: Tuple[int, int, int, int], field_identifier: str, max_retries: int = 3) -> str:
+    def _ocr_with_retry(self, screenshot: Image.Image, region: Tuple[int, int, int, int], field_identifier: str, max_retries: Optional[int] = None) -> str:
         """
         Perform OCR with retry mechanism for empty results.
         
@@ -269,13 +312,19 @@ class VerificationController:
             screenshot: PIL Image to process
             region: Tuple of (x1, y1, x2, y2) coordinates
             field_identifier: String identifier for logging
-            max_retries: Maximum number of retry attempts
+            max_retries: Maximum number of retry attempts (uses config if None)
             
         Returns:
             OCR text result, empty string if all retries fail
         """
         retry_config = self.config.get("timing", {})
         retry_delay = retry_config.get("ocr_retry_delay_seconds", 0.5)
+        
+        # Use configured retry count if not specified
+        if max_retries is None:
+            max_retries = int(retry_config.get("ocr_max_retries", 3))
+        else:
+            max_retries = int(max_retries)
         
         for attempt in range(max_retries):
             try:
@@ -410,10 +459,18 @@ class VerificationController:
                 if trigger_detected:
                     should_start = False
                     if not self.recently_triggered:
-                        should_start = screen_changed
+                        # Start verification on trigger detection, regardless of screen change
+                        should_start = True
+                        logging.info(f"🎯 First trigger detection - starting verification")
                     elif current_rx_number and current_rx_number != self.last_rx_number:
                         should_start = True
+                        logging.info(f"🔄 New Rx number detected: {current_rx_number}")
+                    elif not current_rx_number and not self.last_rx_number:
+                        # Allow trigger without Rx number if we haven't processed anything recently
+                        should_start = True
+                        logging.info(f"🎯 Trigger detected without Rx number - starting verification")
 
+                    # Check cooldown only if we have an Rx number
                     if should_start and current_rx_number:
                         last_time = self.processed_rx_times.get(current_rx_number)
                         cooldown = float(self.config.get("timing", {}).get("same_prescription_wait_seconds", 3.0))
@@ -422,7 +479,8 @@ class VerificationController:
                             should_start = False
 
                     if should_start:
-                        logging.info(f"New Rx detected: #{current_rx_number}, starting verification...")
+                        rx_display = f"#{current_rx_number}" if current_rx_number else "without Rx number"
+                        logging.info(f"New prescription detected: {rx_display}, starting verification...")
                         self.last_rx_number = current_rx_number
                         self.recently_triggered = True
                         self.last_trigger_time = now
