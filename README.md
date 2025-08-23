@@ -1,5 +1,8 @@
 # What's new?
 
+**08/23/2025: Major Improvement in performance!**
+**Asynchronous Processing**: The system now supports asynchronous processing for improved performance and responsiveness. Also the image pre-process is standardized regardless of the OCR engine selection. This allows for faster verification and reduced waiting times, especially when dealing with multiple prescriptions in a row. *Now it's as fast as I have to add delay timer for the next scan*. However, please be patient with the first time turning ON the monitor or the very first scan since it's loading a lot of libraries.
+
 **08/21/2025: Adaptive trigger for other software**
 
 **Customized Trigger**: Instead of hardcoding the trigger to "Pre-Check Rx", the system now allows you to set a custom trigger area and keyword to star the verifying process. Also a separated "Rx#" area for detecting new prescriptions. I have made all settings to the config.json file and availabe on the streamlit settings page for easy configuration. This allows you to adapt the system to work with any pharmacy software that has a similar pre-check verification process.

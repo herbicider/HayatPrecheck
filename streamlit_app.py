@@ -25,6 +25,7 @@ from PIL import Image, ImageDraw
 import threading
 import subprocess
 import sys
+import asyncio
 from typing import Dict, Any, List, Optional, Tuple
 from streamlit_ai_page import ai_config_page
 
@@ -1178,16 +1179,22 @@ class SimplePharmacyApp:
         """Start the verification process"""
         try:
             if self.config and hasattr(self, 'VerificationController'):
-                # Create verification controller
-                controller = self.VerificationController(self.config)
+                # Create event loop for the controller
+                loop = asyncio.new_event_loop()
+                
+                # Create verification controller with both config and loop
+                controller = self.VerificationController(self.config, loop)
                 st.session_state.verification_controller = controller
                 
                 # Start monitoring in a background thread
                 def run_monitoring():
                     try:
-                        controller.run()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(controller.async_run())
                     except Exception as e:
                         logging.error(f"Error in monitoring thread: {e}")
+                    finally:
+                        loop.close()
                 
                 # Start the monitoring thread
                 monitoring_thread = threading.Thread(target=run_monitoring, daemon=True)

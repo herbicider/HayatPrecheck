@@ -1,4 +1,5 @@
 
+import cv2
 import pytesseract
 from PIL import Image, ImageEnhance, ImageFilter
 from PIL.Image import Resampling
@@ -141,6 +142,27 @@ def get_cached_ocr_provider(provider_type: str, advanced_settings: Dict[str, Any
     
     return _ocr_provider_cache[cache_key]
 
+def _preprocess_image_with_cv2(image: Image.Image, ocr_config: Dict[str, Any]) -> np.ndarray:
+    """
+    Performs a standardized set of pre-processing steps on an image using OpenCV.
+    Returns a processed image as a NumPy array.
+    """
+    # Convert PIL Image to OpenCV format
+    img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    
+    # 1. Scaling
+    scale_factor = ocr_config.get("resize_factor", 2)
+    if scale_factor > 1:
+        img_cv = cv2.resize(img_cv, (0, 0), fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_CUBIC)
+
+    # 2. Grayscale
+    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
+
+    # 3. Binarization (Adaptive Thresholding)
+    binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                 cv2.THRESH_BINARY, 11, 2)
+    return binary
+
 class OcrProvider:
     """Abstract base class for OCR providers."""
     def get_text_from_region(self, screenshot: Image.Image, region: Tuple[int, int, int, int], field_name: str = "") -> str:
@@ -176,24 +198,9 @@ class TesseractOcrProvider(OcrProvider):
     def _preprocess_image_for_ocr(self, image: Image.Image) -> Image.Image:
         """Applies a series of preprocessing steps to an image to improve OCR accuracy."""
         ocr_config = self.advanced_settings.get("ocr", {})
-        
-        width, height = image.size
-        new_size = (width * ocr_config.get("resize_factor", 2), height * ocr_config.get("resize_factor", 2))
-        resized = image.resize(new_size, Resampling.LANCZOS)
-        
-        gray = resized.convert('L')
-        
-        contrast = ImageEnhance.Contrast(gray).enhance(ocr_config.get("contrast_factor", 1.5))
-        brightness = ImageEnhance.Brightness(contrast).enhance(ocr_config.get("brightness_factor", 1.2))
-        
-        try:
-            img_array = np.array(brightness)
-            threshold_value = np.mean(img_array) + ocr_config.get("threshold_mean_offset", -20)
-            binary_array = np.where(img_array > threshold_value, 255, 0).astype(np.uint8)
-            return Image.fromarray(binary_array, mode='L')
-        except ImportError:
-            fallback_threshold = ocr_config.get("fallback_threshold", 120)
-            return brightness.point(lambda x: 255 if x > fallback_threshold else 0, mode='L')
+        processed_array = _preprocess_image_with_cv2(image, ocr_config)
+        # Tesseract works with PIL Images
+        return Image.fromarray(processed_array)
 
     def get_text_from_region(self, screenshot: Image.Image, region: Tuple[int, int, int, int], field_name: str = "") -> str:
         """Crops, preprocesses, and OCRs a region of an image with performance logging."""
@@ -269,10 +276,47 @@ class EasyOcrProvider(OcrProvider):
             logging.error(f"Failed to initialize EasyOCR: {e}")
             raise
 
+    def _preprocess_image_for_ocr(self, image: Image.Image) -> np.ndarray:
+        """Applies a series of preprocessing steps to an image to improve OCR accuracy for EasyOCR."""
+        ocr_config = self.advanced_settings.get("ocr", {})
+        # EasyOCR works with NumPy arrays
+        return _preprocess_image_with_cv2(image, ocr_config)
+
     def get_text_from_region(self, screenshot: Image.Image, region: Tuple[int, int, int, int], field_name: str = "") -> str:
         """Extract text using EasyOCR."""
         start_time = time.time()
         try:
+            cropped = screenshot.crop(region)
+            preprocessed_img_array = self._preprocess_image_for_ocr(cropped)
+            
+            # EasyOCR can now use the preprocessed image
+            results = self.reader.readtext(preprocessed_img_array)
+            
+            # Extract text with confidence filtering
+            easyocr_config = self.advanced_settings.get("easyocr", {})
+            confidence_threshold = easyocr_config.get("confidence_threshold", 0.5)
+            
+            texts = []
+            for (bbox, text, confidence) in results:
+                if confidence > confidence_threshold:
+                    texts.append(text)
+            
+            text = ' '.join(texts)
+            
+            # Apply consistent text cleaning
+            text = text.replace('|', '').replace('_', ' ')
+            text = ' '.join(text.split())
+            text = re.sub(r'\s+[_\-\.\|]\s*$', '', text)
+            text = re.sub(r'(\w+)\s+(of|or|on)$', r'\1a', text)
+            
+            # Log performance
+            ocr_time = time.time() - start_time
+            if field_name:
+                log_ocr_performance(f"{field_name}_easyocr", region, ocr_time, len(text))
+            
+            return text
+            
+        except:
             cropped = screenshot.crop(region)
             img_array = np.array(cropped)
             
@@ -303,6 +347,3 @@ class EasyOcrProvider(OcrProvider):
             
             return text
             
-        except Exception as e:
-            logging.error(f"EasyOCR error for region {region}: {e}")
-            return ""
