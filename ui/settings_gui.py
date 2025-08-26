@@ -108,10 +108,13 @@ class SettingsGUI:
     def load_config(self) -> bool:
         """Load configuration from config.json file."""
         try:
-            config_path = "config.json"
+            config_path = os.path.join("config", "config.json")
             if not os.path.exists(config_path):
-                # Try in same directory as script
+                # Try in same directory as script (fallback for old structure)
                 config_path = os.path.join(os.path.dirname(__file__), "config.json")
+                if not os.path.exists(config_path):
+                    # Try in parent directory config folder
+                    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "config.json")
             
             with open(config_path, 'r') as f:
                 self.config = json.load(f)
@@ -136,7 +139,12 @@ class SettingsGUI:
             return
             
         try:
-            config_path = "config.json"
+            config_path = os.path.join("config", "config.json")
+            # Ensure config directory exists
+            config_dir = os.path.dirname(config_path)
+            if not os.path.exists(config_dir):
+                os.makedirs(config_dir)
+                
             with open(config_path, 'w') as f:
                 json.dump(self.config, f, indent=2)
             messagebox.showinfo("Success", "Configuration saved successfully!")

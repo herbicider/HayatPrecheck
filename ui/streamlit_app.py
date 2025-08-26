@@ -14,11 +14,16 @@ import streamlit as st
 import pandas as pd
 import json
 import os
+import sys
 import time
 import logging
-from logger_config import setup_logging
 import re
 from datetime import datetime, timedelta
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.logger_config import setup_logging
 import plotly.express as px
 import plotly.graph_objects as go
 from PIL import Image, ImageDraw
@@ -27,7 +32,8 @@ import subprocess
 import sys
 import asyncio
 from typing import Dict, Any, List, Optional, Tuple
-from streamlit_ai_page import ai_config_page
+from ui.streamlit_ai_page import ai_config_page
+from ui.streamlit_vlm_page import vlm_settings_page
 
 class SimplePharmacyApp:
     def __init__(self):
@@ -38,8 +44,8 @@ class SimplePharmacyApp:
             pass
         # Import modules here to avoid module-level Streamlit calls
         try:
-            from verification_controller import VerificationController
-            from settings_manager import SettingsManager
+            from core.verification_controller import VerificationController
+            from core.settings_manager import SettingsManager
             self.VerificationController = VerificationController
             self.SettingsManager = SettingsManager
         except ImportError as e:
@@ -47,7 +53,7 @@ class SimplePharmacyApp:
             st.info("Please ensure verification_controller.py and settings_manager.py are in the same directory.")
             st.stop()
             
-        self.config_file = "config.json"
+        self.config_file = "config/config.json"
         self.log_file = "verification.log"
         self.settings_manager = self.SettingsManager(self.config_file)
         self.config = None
@@ -817,6 +823,11 @@ class SimplePharmacyApp:
         """Display the monitoring/logging page with live OCR and scores"""
         st.title("📊 Pharmacy Verification Monitor")
         
+        # Verification method selection
+        self.show_verification_method_selection()
+        
+        st.markdown("---")
+        
         # Automation settings section
         self.show_automation_settings()
         
@@ -858,6 +869,97 @@ class SimplePharmacyApp:
         
         # Log display (smaller section now)
         self.show_log_section()
+
+    def show_verification_method_selection(self):
+        """Show verification method selection (OCR vs VLM)"""
+        st.subheader("🔍 Verification Method")
+        
+        if not self.config:
+            st.warning("No configuration loaded. Please set up coordinates first.")
+            return
+        
+        # Get current verification method
+        current_method = self.config.get("verification_mode", "ocr")
+        
+        st.info("💡 **Choose Verification Method:** OCR extracts text then compares, VLM directly compares images")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            method_options = [
+                ("ocr", "🔤 OCR + Text Comparison"),
+                ("vlm", "👁️ Vision Language Model")
+            ]
+            
+            method_labels = [label for _, label in method_options]
+            method_values = [value for value, _ in method_options]
+            
+            try:
+                current_index = method_values.index(current_method)
+            except ValueError:
+                current_index = 0
+            
+            selected_method = st.selectbox(
+                "Verification Method:",
+                options=method_values,
+                format_func=lambda x: method_labels[method_values.index(x)],
+                index=current_index,
+                help="Choose between OCR-based text comparison or direct image comparison with VLM"
+            )
+        
+        with col2:
+            # Show method-specific info
+            if selected_method == "ocr":
+                st.info("""
+                **🔤 OCR Mode:**
+                • Uses OCR to extract text
+                • Compares text strings
+                • Faster, less resource intensive
+                • Good for clear, typed text
+                """)
+            else:
+                st.info("""
+                **👁️ VLM Mode:**
+                • AI vision directly compares images
+                • No OCR errors or text extraction
+                • Better for handwriting & complex layouts
+                • Requires vision-capable model
+                """)
+        
+        # Update method if changed
+        if selected_method != current_method:
+            self.config["verification_mode"] = selected_method
+            
+            try:
+                self.settings_manager.config = self.config
+                self.settings_manager.save_config(create_backup=True)
+                st.success(f"✅ Verification method updated to {method_labels[method_values.index(selected_method)]}!")
+                time.sleep(0.5)
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Failed to save verification method: {e}")
+        
+        # Show status
+        current_label = method_labels[method_values.index(selected_method)]
+        st.success(f"**Current Method:** {current_label}")
+        
+        # Method-specific warnings/requirements
+        if selected_method == "vlm":
+            st.warning("⚠️ **VLM Requirements:** Make sure you have configured VLM settings and regions in the VLM Configuration page")
+            
+            # Quick link to VLM config
+            if st.button("🛠️ Configure VLM Settings"):
+                st.info("💡 Navigate to 'VLM Configuration' in the sidebar to set up vision model")
+        
+        elif selected_method == "ocr":
+            st.info("💡 **OCR Setup:** Make sure your field coordinates are properly configured in Settings")
+            
+            # Show OCR engine status
+            ocr_provider = self.config.get("ocr_provider")
+            if ocr_provider:
+                st.success(f"**OCR Engine:** {ocr_provider.title()}")
+            else:
+                st.warning("⚠️ No OCR engine configured")
 
     def show_automation_settings(self):
         """Display automation settings section"""
@@ -1236,6 +1338,14 @@ class SimplePharmacyApp:
         """Displays the AI configuration page"""
         ai_config_page(self.config)
 
+    def vlm_config_page(self):
+        """Displays the VLM configuration page"""
+        if self.config:
+            vlm_settings_page(self.config)
+        else:
+            st.error("❌ Configuration not loaded")
+            st.info("Please load configuration first in the Settings page")
+
     def run(self):
         """Main application runner"""        
         # Sidebar navigation
@@ -1244,7 +1354,7 @@ class SimplePharmacyApp:
         
         page = st.sidebar.selectbox(
             "Navigate to:",
-            ["📊 Monitor & Logs", "⚙️ Settings - GUI", "🧠 AI Configuration"]
+            ["📊 Monitor & Logs", "⚙️ Settings - GUI", "🧠 AI Configuration", "👁️ VLM Configuration"]
         )
         
         st.sidebar.markdown("---")
@@ -1262,6 +1372,8 @@ class SimplePharmacyApp:
             self.coordinate_setup_page()
         elif page == "🧠 AI Configuration":
             self.ai_config_page()
+        elif page == "👁️ VLM Configuration":
+            self.vlm_config_page()
 
 def main():
     """Main application entry point"""

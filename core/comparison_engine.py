@@ -6,9 +6,9 @@ import os
 import logging
 from typing import Dict, Any, Tuple
 from rapidfuzz import fuzz
-from ai_verifier import AI_Verifier
+from ai.ai_verifier import AI_Verifier
 
-from logger_config import log_field_details
+from core.logger_config import log_field_details
 
 class ComparisonEngine:
     """Handles text cleaning, normalization, and comparison logic."""

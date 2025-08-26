@@ -36,9 +36,11 @@ import logging
 class SettingsManager:
     """Unified settings management for the pharmacy verification system"""
     
-    def __init__(self, config_file: str = "config.json"):
+    def __init__(self, config_file: str = "config.json", vlm_config_file: Optional[str] = None):
         self.config_file = config_file
+        self.vlm_config_file = vlm_config_file or os.path.join("config", "vlm_config.json")
         self.config: Optional[Dict[str, Any]] = None
+        self.vlm_config: Optional[Dict[str, Any]] = None
         self.backup_dir = "config_backups"
         
         # Ensure backup directory exists
@@ -62,6 +64,21 @@ class SettingsManager:
             self.logger.error(f"Error loading configuration: {e}")
             return False
     
+    def load_vlm_config(self) -> bool:
+        """Load VLM configuration from vlm_config.json file"""
+        try:
+            if os.path.exists(self.vlm_config_file):
+                with open(self.vlm_config_file, 'r') as f:
+                    self.vlm_config = json.load(f)
+                self.logger.info(f"VLM configuration loaded from {self.vlm_config_file}")
+                return True
+            else:
+                self.logger.error(f"VLM configuration file {self.vlm_config_file} not found")
+                return False
+        except Exception as e:
+            self.logger.error(f"Error loading VLM configuration: {e}")
+            return False
+    
     def save_config(self, create_backup: bool = False) -> bool:
         """Save configuration to config.json file"""
         if not self.config:
@@ -81,6 +98,25 @@ class SettingsManager:
             self.logger.error(f"Error saving configuration: {e}")
             return False
     
+    def save_vlm_config(self, create_backup: bool = False) -> bool:
+        """Save VLM configuration to vlm_config.json file"""
+        if not self.vlm_config:
+            self.logger.error("No VLM configuration to save")
+            return False
+        
+        try:
+            # Create backup only if requested
+            if create_backup:
+                self.create_vlm_backup()
+            
+            with open(self.vlm_config_file, 'w') as f:
+                json.dump(self.vlm_config, f, indent=2)
+            self.logger.info(f"VLM configuration saved to {self.vlm_config_file}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving VLM configuration: {e}")
+            return False
+    
     def create_backup(self) -> str:
         """Create a backup of the current configuration"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -97,6 +133,25 @@ class SettingsManager:
                 return backup_file
         except Exception as e:
             self.logger.error(f"Error creating backup: {e}")
+        
+        return ""
+    
+    def create_vlm_backup(self) -> str:
+        """Create a backup of the current VLM configuration"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = os.path.join(self.backup_dir, f"vlm_config_backup_{timestamp}.json")
+        
+        try:
+            if os.path.exists(self.vlm_config_file):
+                shutil.copy2(self.vlm_config_file, backup_file)
+                self.logger.info(f"VLM backup created: {backup_file}")
+                
+                # Clean up old backups (keep last 10)
+                self.cleanup_old_vlm_backups()
+                
+                return backup_file
+        except Exception as e:
+            self.logger.error(f"Error creating VLM backup: {e}")
         
         return ""
     
@@ -119,6 +174,26 @@ class SettingsManager:
                 
         except Exception as e:
             self.logger.error(f"Error cleaning up backups: {e}")
+    
+    def cleanup_old_vlm_backups(self, keep_count: int = 10):
+        """Remove old VLM backup files, keeping only the most recent ones"""
+        try:
+            backup_files = []
+            for filename in os.listdir(self.backup_dir):
+                if filename.startswith("vlm_config_backup_") and filename.endswith(".json"):
+                    filepath = os.path.join(self.backup_dir, filename)
+                    backup_files.append((filepath, os.path.getmtime(filepath)))
+            
+            # Sort by modification time (newest first)
+            backup_files.sort(key=lambda x: x[1], reverse=True)
+            
+            # Remove excess backups
+            for filepath, _ in backup_files[keep_count:]:
+                os.remove(filepath)
+                self.logger.info(f"Removed old VLM backup: {filepath}")
+                
+        except Exception as e:
+            self.logger.error(f"Error cleaning up VLM backups: {e}")
     
     def restore_backup(self, backup_file: str) -> bool:
         """Restore configuration from a backup file"""

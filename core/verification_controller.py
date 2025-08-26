@@ -14,9 +14,9 @@ import pyautogui
 import tkinter as tk
 from PIL import Image, ImageFilter
 
-from comparison_engine import ComparisonEngine
-from logger_config import log_rx_summary, setup_logging
-from ocr_provider import get_cached_ocr_provider
+from core.comparison_engine import ComparisonEngine
+from core.logger_config import log_rx_summary, setup_logging
+from core.ocr_provider import get_cached_ocr_provider
 
 
 # This function is defined at the top level so it can be pickled and sent to other processes.
@@ -258,35 +258,98 @@ class VerificationController:
             return ""
 
     def _check_trigger(self, screenshot: Image.Image) -> Tuple[bool, str]:
-        """Check if the trigger text is present."""
+        """Check if the trigger text is present using hybrid approach (OCR first, VLM fallback)."""
         trigger_config = self.advanced_settings.get("trigger", {})
         trigger_region = tuple(self.config["regions"]["trigger"])
-        trigger_text = self.ocr_provider.get_text_from_region(screenshot, trigger_region)
-        
         keywords = trigger_config.get("keywords", ["pre", "check", "rx"])
-        sim_threshold = trigger_config.get("keyword_similarity_threshold", 90)
-        min_matches = trigger_config.get("min_keyword_matches", 2)
         
-        from rapidfuzz import fuzz
-        text_lower = trigger_text.lower()
+        # First try OCR-based trigger detection
+        ocr_trigger_detected, ocr_rx_number = self._check_trigger_with_ocr(screenshot, trigger_region, keywords, trigger_config)
         
-        full_phrase = " ".join(keywords)
-        if fuzz.ratio(text_lower.strip(), full_phrase.lower()) >= 80:
-             trigger_detected = True
-             rx_number = self._extract_rx_number(screenshot)
-             return trigger_detected, rx_number
-
-        text_words = re.split(r'[\s\-_.,;:|"\']+', text_lower)
-        text_words = [w for w in text_words if w]
-        found_count = sum(1 for kw in keywords if any(fuzz.ratio(w, kw.lower()) >= sim_threshold for w in text_words))
+        # If OCR succeeded with good confidence, use it
+        if ocr_trigger_detected and ocr_rx_number:
+            logging.debug(f"Trigger detected via OCR: Rx#{ocr_rx_number}")
+            return ocr_trigger_detected, ocr_rx_number
+        elif ocr_trigger_detected:
+            logging.debug("Trigger detected via OCR (no Rx number)")
+            return ocr_trigger_detected, ""
         
-        trigger_detected = found_count >= min_matches
-        rx_number = self._extract_rx_number(screenshot) if trigger_detected else ""
+        # If in VLM mode and OCR failed, try VLM trigger detection
+        verification_mode = self.config.get("verification_mode", "ocr")
+        if verification_mode == "vlm":
+            vlm_trigger_detected, vlm_rx_number = self._check_trigger_with_vlm(trigger_region, keywords)
+            if vlm_trigger_detected:
+                logging.info(f"Trigger detected via VLM fallback: Rx#{vlm_rx_number or 'UNKNOWN'}")
+                return vlm_trigger_detected, vlm_rx_number
         
-        if trigger_detected:
-            logging.debug(f"Trigger detected - Rx#{rx_number or 'UNKNOWN'}")
-        
-        return trigger_detected, rx_number
+        # No trigger detected
+        return False, ""
+    
+    def _check_trigger_with_ocr(self, screenshot: Image.Image, trigger_region: tuple, keywords: list, trigger_config: dict) -> Tuple[bool, str]:
+        """Traditional OCR-based trigger detection"""
+        try:
+            trigger_text = self.ocr_provider.get_text_from_region(screenshot, trigger_region)
+            
+            sim_threshold = trigger_config.get("keyword_similarity_threshold", 90)
+            min_matches = trigger_config.get("min_keyword_matches", 2)
+            
+            from rapidfuzz import fuzz
+            text_lower = trigger_text.lower()
+            
+            # Check for full phrase match first
+            full_phrase = " ".join(keywords)
+            if fuzz.ratio(text_lower.strip(), full_phrase.lower()) >= 80:
+                trigger_detected = True
+                rx_number = self._extract_rx_number(screenshot)
+                return trigger_detected, rx_number
+            
+            # Check individual keyword matches
+            text_words = re.split(r'[\s\-_.,;:|"\']+', text_lower)
+            text_words = [w for w in text_words if w]
+            found_count = sum(1 for kw in keywords if any(fuzz.ratio(w, kw.lower()) >= sim_threshold for w in text_words))
+            
+            trigger_detected = found_count >= min_matches
+            rx_number = self._extract_rx_number(screenshot) if trigger_detected else ""
+            
+            if trigger_detected:
+                logging.debug(f"OCR trigger detected - found {found_count}/{len(keywords)} keywords")
+            
+            return trigger_detected, rx_number
+            
+        except Exception as e:
+            logging.warning(f"OCR trigger detection failed: {e}")
+            return False, ""
+    
+    def _check_trigger_with_vlm(self, trigger_region: tuple, keywords: list) -> Tuple[bool, str]:
+        """VLM-based trigger detection fallback"""
+        try:
+            # Load VLM configuration
+            vlm_config = self._load_vlm_config()
+            if not vlm_config:
+                logging.warning("VLM trigger fallback: No VLM configuration available")
+                return False, ""
+            
+            # Import VLM verifier
+            try:
+                from ai.vlm_verifier import VLM_Verifier
+            except ImportError:
+                logging.warning("VLM trigger fallback: VLM Verifier module not available")
+                return False, ""
+            
+            # Create VLM verifier and detect trigger
+            vlm_verifier = VLM_Verifier(vlm_config)
+            trigger_detected, rx_number = vlm_verifier.detect_trigger_with_vlm(trigger_region, keywords)
+            
+            if trigger_detected:
+                logging.info(f"VLM trigger fallback successful: trigger={trigger_detected}, rx={rx_number}")
+            else:
+                logging.debug("VLM trigger fallback: No trigger detected")
+            
+            return trigger_detected, rx_number
+            
+        except Exception as e:
+            logging.error(f"VLM trigger detection failed: {e}")
+            return False, ""
 
     async def _perform_ocr_on_all_fields(
         self, screenshot: Image.Image
@@ -359,12 +422,27 @@ class VerificationController:
             self.verification_in_progress = True
             logging.info("Running field verification...")
 
-            if ocr_results is None:
-                ocr_results = await self._perform_ocr_on_all_fields(screenshot)
-
-            results = self.comparison_engine.verify_fields(ocr_results)
+            # Check verification mode
+            verification_mode = self.config.get("verification_mode", "ocr")
+            
+            if verification_mode == "vlm":
+                # Use VLM verification
+                results = await self._verify_with_vlm()
+            else:
+                # Use traditional OCR verification
+                if ocr_results is None:
+                    ocr_results = await self._perform_ocr_on_all_fields(screenshot)
+                results = self.comparison_engine.verify_fields(ocr_results)
+            
             log_rx_summary(self.last_rx_number or "", results)
-            self.last_verified_signature = self._get_prescription_signature(ocr_results)
+            
+            # Create prescription signature for VLM mode
+            if verification_mode == "vlm":
+                self.last_verified_signature = f"vlm_verification_{int(time.time())}"
+            elif ocr_results:
+                self.last_verified_signature = self._get_prescription_signature(ocr_results)
+            else:
+                self.last_verified_signature = f"verification_{int(time.time())}"
 
             matches = sum(1 for r in results.values() if r["match"])
             if matches > 0 and matches == len(results):
@@ -375,6 +453,83 @@ class VerificationController:
             logging.error(f"Error during verification: {e}")
         finally:
             self.verification_in_progress = False
+
+    async def _verify_with_vlm(self) -> Dict[str, Dict[str, Any]]:
+        """Perform verification using Vision Language Model"""
+        try:
+            # Load VLM configuration
+            vlm_config = self._load_vlm_config()
+            if not vlm_config:
+                logging.error("VLM: Configuration not found, falling back to empty results")
+                return {}
+            
+            # Import VLM verifier
+            try:
+                from ai.vlm_verifier import VLM_Verifier
+            except ImportError:
+                logging.error("VLM: VLM Verifier module not available")
+                return {}
+            
+            # Create VLM verifier
+            vlm_verifier = VLM_Verifier(vlm_config)
+            
+            # Run VLM verification
+            logging.info("VLM: Starting vision-based verification")
+            vlm_scores = vlm_verifier.verify_with_vlm()
+            
+            # Convert VLM scores to verification results format
+            results = {}
+            
+            # Get thresholds for comparison
+            thresholds = self.config.get("thresholds", {})
+            
+            # Map VLM field names to threshold keys
+            field_threshold_map = {
+                "patient_name": "patient",
+                "prescriber_name": "prescriber", 
+                "drug_name": "drug",
+                "direction_sig": "sig"
+            }
+            
+            for field_name, score in vlm_scores.items():
+                threshold_key = field_threshold_map.get(field_name, field_name)
+                threshold = thresholds.get(threshold_key, 70)
+                
+                match = score >= threshold
+                
+                results[field_name] = {
+                    "entered": f"VLM_IMAGE_ANALYSIS",
+                    "source": f"VLM_IMAGE_ANALYSIS", 
+                    "score": score,
+                    "match": match,
+                    "threshold": threshold,
+                    "method": "vlm"
+                }
+                
+                status = "✅ MATCH" if match else "❌ NO MATCH"
+                logging.info(f"VLM: {field_name.replace('_', ' ').title()}: {score}% | Threshold: {threshold}% | {status}")
+            
+            logging.info(f"VLM: Verification completed for {len(results)} fields")
+            return results
+            
+        except Exception as e:
+            logging.error(f"VLM: Error during verification: {e}")
+            logging.error(f"VLM: Falling back to empty results")
+            return {}
+
+    def _load_vlm_config(self) -> Optional[Dict[str, Any]]:
+        """Load VLM configuration from config/vlm_config.json"""
+        try:
+            vlm_config_file = os.path.join("config", "vlm_config.json")
+            if os.path.exists(vlm_config_file):
+                with open(vlm_config_file, 'r') as f:
+                    return json.load(f)
+            else:
+                logging.error(f"VLM: Configuration file {vlm_config_file} not found")
+                return None
+        except Exception as e:
+            logging.error(f"VLM: Error loading configuration: {e}")
+            return None
 
     def stop(self):
         """Stop the monitoring loop gracefully."""

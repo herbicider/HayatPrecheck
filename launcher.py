@@ -17,6 +17,9 @@ import time
 import json
 from pathlib import Path
 
+# Add the project root to Python path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 def check_dependencies():
     """Check if required packages are installed"""
     required_packages = [
@@ -140,7 +143,7 @@ def install_easyocr():
 
 def update_config_for_ocr(ocr_engine):
     """Update config.json to use specified OCR engine"""
-    config_path = Path("config.json")
+    config_path = Path("config/config.json")
     
     if config_path.exists():
         try:
@@ -294,8 +297,8 @@ def main():
         print("❌ OCR setup failed. Some features may not work properly.")
     
     # Check system status
-    config_exists = os.path.exists('config.json')
-    gui_exists = os.path.exists('settings_gui.py')
+    config_exists = os.path.exists('config/config.json')
+    gui_exists = os.path.exists('ui/settings_gui.py')
     
     print("\n📋 System Status:")
     print(f"   📄 Config file: {'✅ Found' if config_exists else '❌ Missing'}")
@@ -304,7 +307,7 @@ def main():
     # Show current OCR engine
     if config_exists:
         try:
-            with open('config.json', 'r') as f:
+            with open('config/config.json', 'r') as f:
                 config = json.load(f)
                 ocr_provider = config.get('ocr_provider', 'unknown')
                 print(f"   🔍 OCR Engine: ✅ {ocr_provider.upper()}")
@@ -327,18 +330,18 @@ def main():
     if choice == '1':
         print("\n🌐 Starting Streamlit web interface...")
         print("📍 Your browser should open automatically to: http://localhost:8501")
-        subprocess.run([sys.executable, '-m', 'streamlit', 'run', 'streamlit_app.py'])
+        subprocess.run([sys.executable, '-m', 'streamlit', 'run', 'ui/streamlit_app.py'])
         
     elif choice == '2':
         if not gui_exists:
-            print("❌ Setup GUI not found (settings_gui.py missing)")
+            print("❌ Setup GUI not found (ui/settings_gui.py missing)")
             return
         print("\n🛠️  Starting coordinate setup GUI...")
-        subprocess.run([sys.executable, 'settings_gui.py'])
+        subprocess.run([sys.executable, 'ui/settings_gui.py'])
         
     elif choice == '3':
         if not gui_exists:
-            print("❌ Setup GUI not found (settings_gui.py missing)")
+            print("❌ Setup GUI not found (ui/settings_gui.py missing)")
             return
             
         print("\n🚀 Starting both interfaces...")
@@ -346,14 +349,14 @@ def main():
         print("   🌐 Then: Streamlit Monitor")
         
         # Start GUI first
-        gui_process = subprocess.Popen([sys.executable, 'settings_gui.py'])
+        gui_process = subprocess.Popen([sys.executable, 'ui/settings_gui.py'])
         
         # Give GUI time to start
         time.sleep(2)
         
         # Start Streamlit
         print("📍 Opening Streamlit in your browser...")
-        subprocess.run([sys.executable, '-m', 'streamlit', 'run', 'streamlit_app.py'])
+        subprocess.run([sys.executable, '-m', 'streamlit', 'run', 'ui/streamlit_app.py'])
         
     elif choice == '4':
         print("\n🔧 OCR Engine Setup...")
@@ -374,5 +377,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ An error occurred: {e}")
         print("💡 Try running the components manually:")
-        print("   • For monitoring: streamlit run streamlit_app.py")
-        print("   • For setup: python settings_gui.py")
+        print("   • For monitoring: streamlit run ui/streamlit_app.py")
+        print("   • For setup: python ui/settings_gui.py")
