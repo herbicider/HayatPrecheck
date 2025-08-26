@@ -2,7 +2,7 @@
 
 **08/25/2025: Vision Language Model (VLM) Integration** (Testing and improving)
 
-**🎯 VLM-Powered Direct Image Verification**: The system now supports Vision Language Models for direct prescription image comparison without OCR text extraction. This revolutionary approach analyzes screenshots directly using AI vision capabilities, providing superior accuracy for handwritten prescriptions and complex layouts while maintaining visual context and formatting. Configure your VLM server (Ollama, LlamaFile, etc.) and enable visual point-and-click region selection through the new VLM Configuration GUI.
+**🎯 VLM-Powered Direct Image Verification**: The system now supports Vision Language Models for direct prescription image comparison without OCR text extraction. This revolutionary approach analyzes screenshots directly using AI vision capabilities, providing superior accuracy for handwritten prescriptions and complex layouts while maintaining visual context and formatting. Configure your VLM server (I'm running Qwen2-VL on a 8Gb Vram PC) and enable visual point-and-click region selection through the new VLM Configuration GUI.
 
 **08/23/2025: Major Improvement in OCR performance!**
 
