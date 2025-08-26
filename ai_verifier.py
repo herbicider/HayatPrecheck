@@ -68,33 +68,32 @@ class AI_Verifier:
             
             response_content = chat_completion.choices[0].message.content.strip()
             
-            # Debug: Log the AI response
-            logging.debug(f"AI raw response: {response_content}")
+            # Log only the LLM response content for debugging
+            logging.info(f"[LLM Response] {response_content}")
             
             # Try to parse structured response (new format)
             scores = self._parse_structured_response(response_content)
             if scores:
                 # Validate scores against empty fields
                 validated_scores = self._validate_ai_scores(scores, ocr_results)
-                logging.debug(f"AI parsed structured scores: {scores}")
-                logging.debug(f"AI validated scores: {validated_scores}")
                 return validated_scores
             
             # Fallback to legacy single score extraction
             legacy_score = self._extract_legacy_score(response_content)
             validated_legacy = self._validate_single_score(legacy_score, field_to_verify, ocr_results)
-            logging.debug(f"AI legacy score extraction: {legacy_score}")
-            logging.debug(f"AI validated legacy score: {validated_legacy}")
             return {field_to_verify: validated_legacy}
         
         except Exception as e:
-            logging.error(f"An error occurred during AI verification: {e}")
+            logging.error(f"[LLM Error] An error occurred during AI verification: {e}")
+            logging.error(f"[LLM Error] Error type: {type(e).__name__}")
+            logging.error(f"[LLM Error] Model: {self.config.get('model_name')}")
+            logging.error(f"[LLM Error] Base URL: {self.config.get('base_url')}")
             print(f"An error occurred during AI verification: {e}")
             # Return empty dict for all fields that were requested
             error_scores = {}
             for field in ocr_results.keys():
                 error_scores[field] = 0
-            logging.debug(f"AI error - returning zero scores: {error_scores}")
+            logging.info(f"[LLM Error] Returning zero scores for all fields: {error_scores}")
             return error_scores
 
     def _parse_structured_response(self, response_content):

@@ -366,7 +366,6 @@ If you specifically need Tesseract, try these solutions:
    |-- launcher.py                  # Main launcher with setup wizard
    |-- ocr_provider.py             # OCR engine management
    |-- settings_gui.py             # GUI coordinate setup tool
-   |-- settings_cli.py             # Command-line setup tool
    |-- settings_manager.py         # Configuration management
    |-- streamlit_app.py            # Web monitoring dashboard
    |-- streamlit_ai_page.py        # AI settings interface

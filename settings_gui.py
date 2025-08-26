@@ -385,10 +385,10 @@ class SettingsGUI:
                                            variable=self.region_var, value="rx_number", 
                                            command=self.on_region_change)
         
+        # Only pack the default radio buttons initially
+        # trigger and rx_number radio buttons will be shown/hidden based on field selection
         self.radio_entered.pack(anchor=tk.W)
         self.radio_source.pack(anchor=tk.W)
-        self.radio_trigger.pack(anchor=tk.W)
-        self.radio_rx_number.pack(anchor=tk.W)
         
         # Verification Method selection
         ttk.Label(select_frame, text="Verification Method:", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(10, 0))
@@ -469,6 +469,13 @@ class SettingsGUI:
         self.status_label = ttk.Label(status_frame, text="Ready", 
                                      font=("Arial", 9))
         self.status_label.pack(anchor=tk.W)
+        
+        # Initialize field selection to ensure proper UI state
+        if self.field_combo:
+            # Set a default field if none is selected
+            if not self.field_var.get():
+                self.field_var.set("patient_name")
+            self.on_field_change()  # This will properly set up the radio button visibility
     
     def setup_settings_panel(self, parent):
         """Set up the general settings panel."""
@@ -1239,6 +1246,8 @@ class SettingsGUI:
             try:
                 if self.current_field == "trigger":
                     coords = self.config["regions"]["trigger"]
+                elif self.current_field == "rx_number":
+                    coords = self.config["regions"]["rx_number"]
                 else:
                     coords = self.config["regions"]["fields"][self.current_field][self.current_region_type]
                 
@@ -1264,6 +1273,8 @@ class SettingsGUI:
             
             if self.current_field == "trigger":
                 self.config["regions"]["trigger"] = coords
+            elif self.current_field == "rx_number":
+                self.config["regions"]["rx_number"] = coords
             else:
                 self.config["regions"]["fields"][self.current_field][self.current_region_type] = coords
             
@@ -1297,6 +1308,9 @@ class SettingsGUI:
                     pass  # Rectangle might not exist anymore
         self.rectangles.clear()
         
+        # Track label positions to avoid overlaps
+        used_label_positions = []
+        
         # Draw trigger region
         if "trigger" in self.config["regions"]:
             coords = self.config["regions"]["trigger"]
@@ -1315,10 +1329,33 @@ class SettingsGUI:
                 
                 # Add label if enabled
                 if self.show_labels.get():
-                    label_x = x1 + 5
-                    label_y = y1 + 5
+                    label_x, label_y = self._find_available_label_position(x1, y1, x2, y2, used_label_positions)
                     self.canvas.create_text(label_x, label_y, text="trigger", anchor=tk.NW, 
                                           fill=color, font=("Arial", 8, "bold"))
+                    used_label_positions.append((label_x, label_y))
+        
+        # Draw rx_number region
+        if "rx_number" in self.config["regions"]:
+            coords = self.config["regions"]["rx_number"]
+            if len(coords) >= 4:
+                # Convert from screenshot coordinates to display coordinates
+                x1 = int(coords[0] / self.scale_x)
+                y1 = int(coords[1] / self.scale_y)
+                x2 = int(coords[2] / self.scale_x)
+                y2 = int(coords[3] / self.scale_y)
+                
+                color = "orange"
+                width = 3 if (self.current_field == "rx_number") else 1
+                
+                rect = self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=width)
+                self.rectangles["rx_number"] = rect
+                
+                # Add label if enabled
+                if self.show_labels.get():
+                    label_x, label_y = self._find_available_label_position(x1, y1, x2, y2, used_label_positions)
+                    self.canvas.create_text(label_x, label_y, text="rx_number", anchor=tk.NW, 
+                                          fill=color, font=("Arial", 8, "bold"))
+                    used_label_positions.append((label_x, label_y))
         
         # Draw all field rectangles
         colors = {"entered": "blue", "source": "green"}
@@ -1343,11 +1380,44 @@ class SettingsGUI:
                         
                         # Add label if enabled
                         if self.show_labels.get():
-                            label_x = x1 + 5
-                            label_y = y1 + 5
                             text = f"{field_name}_{region_type}"
+                            label_x, label_y = self._find_available_label_position(x1, y1, x2, y2, used_label_positions)
                             self.canvas.create_text(label_x, label_y, text=text, anchor=tk.NW, 
                                                   fill=color, font=("Arial", 8, "bold"))
+                            used_label_positions.append((label_x, label_y))
+    
+    def _find_available_label_position(self, x1, y1, x2, y2, used_positions):
+        """Find an available position for a label that doesn't overlap with existing labels."""
+        # Try multiple positions around the rectangle
+        positions_to_try = [
+            (x1 + 5, y1 + 5),      # Top-left (default)
+            (x1 + 5, y2 - 15),     # Bottom-left
+            (x2 - 50, y1 + 5),     # Top-right
+            (x2 - 50, y2 - 15),    # Bottom-right
+            (x1 + 5, y1 - 15),     # Above top-left
+            (x1 + 5, y2 + 5),      # Below bottom-left
+            ((x1 + x2) // 2 - 25, y1 + 5),  # Center-top
+            ((x1 + x2) // 2 - 25, y2 - 15), # Center-bottom
+        ]
+        
+        for pos_x, pos_y in positions_to_try:
+            # Ensure position is within reasonable bounds
+            if pos_x < 0 or pos_y < 0:
+                continue
+                
+            # Check if this position conflicts with any used position
+            too_close = False
+            for used_x, used_y in used_positions:
+                if abs(pos_x - used_x) < 80 and abs(pos_y - used_y) < 20:  # Labels need ~80px horizontal and 20px vertical spacing
+                    too_close = True
+                    break
+            
+            if not too_close:
+                return pos_x, pos_y
+        
+        # If all positions are taken, use default but offset it
+        offset = len(used_positions) * 20
+        return x1 + 5, y1 + 5 + offset
     
     def run(self):
         """Start the application main loop."""

@@ -1,220 +1,220 @@
 {
-  "timing": {
-    "fast_polling_seconds": 0.5,
-    "max_static_sleep_seconds": 2.0,
-    "same_prescription_wait_seconds": 3.0,
-    "trigger_content_load_delay_seconds": 0.25,
-    "verification_wait_seconds": 0.25,
-    "trigger_check_interval_seconds": 1.0,
-    "ocr_retry_delay_seconds": 0.5,
-    "ocr_max_retries": 2
-  },
-  "thresholds": {
-    "patient": 70,
-    "prescriber": 80,
-    "drug": 80,
-    "sig": 80
-  },
-  "regions": {
-    "trigger": [
-      436,
-      342,
-      490,
-      366
-    ],
-    "rx_number": [
-      96,
-      172,
-      148,
-      188
-    ],
-    "fields": {
-      "patient_name": {
-        "entered": [
-          90,
-          260,
-          272,
-          279
-        ],
-        "source": [
-          524,
-          524,
-          978,
-          548
-        ],
-        "score_fn": "token_sort_ratio",
-        "threshold_key": "patient",
-        "verification_method": "fuzzy"
-      },
-      "prescriber_name": {
-        "entered": [
-          90,
-          334,
-          289,
-          353
-        ],
-        "source": [
-          526,
-          398,
-          944,
-          421
-        ],
-        "score_fn": "token_sort_ratio",
-        "threshold_key": "prescriber",
-        "verification_method": "fuzzy"
-      },
-      "drug_name": {
-        "entered": [
-          90,
-          510,
-          308,
-          532
-        ],
-        "source": [
-          535,
-          667,
-          968,
-          693
-        ],
-        "score_fn": "ratio",
-        "threshold_key": "drug",
-        "verification_method": "fuzzy"
-      },
-      "direction_sig": {
-        "entered": [
-          25,
-          804,
-          393,
-          829
-        ],
-        "source": [
-          538,
-          751,
-          1152,
-          778
-        ],
-        "score_fn": "ratio",
-        "threshold_key": "sig",
-        "verification_method": "fuzzy"
-      },
-      "patient_dob": {
-        "entered": [
-          0,
-          0,
-          0,
-          0
-        ],
-        "source": [
-          0,
-          0,
-          0,
-          0
-        ],
-        "score_fn": "ratio",
-        "threshold_key": "patient_dob"
-      },
-      "patient_phone": {
-        "entered": [
-          0,
-          0,
-          0,
-          0
-        ],
-        "source": [
-          0,
-          0,
-          0,
-          0
-        ],
-        "score_fn": "ratio",
-        "threshold_key": "patient_phone"
-      },
-      "patient_address": {
-        "entered": [
-          0,
-          0,
-          0,
-          0
-        ],
-        "source": [
-          0,
-          0,
-          0,
-          0
-        ],
-        "score_fn": "ratio",
-        "threshold_key": "patient_address"
-      },
-      "prescriber_address": {
-        "entered": [
-          0,
-          0,
-          0,
-          0
-        ],
-        "source": [
-          0,
-          0,
-          0,
-          0
-        ],
-        "score_fn": "ratio",
-        "threshold_key": "prescriber_address"
-      }
-    }
-  },
-  "automation": {
-    "send_key_on_all_match": true,
-    "key_on_all_match": "f12",
-    "key_delay_seconds": 0.5
-  },
-  "tesseract": {
-    "config_options": "--psm 7",
-    "fallback_config": "--psm 8"
-  },
-  "ocr_provider": "auto",
-  "easyocr": {
-    "use_gpu": true,
-    "confidence_threshold": 0.5
-  },
-  "optional_fields_enabled": {
-    "patient_dob": false,
-    "patient_phone": false,
-    "patient_address": false,
-    "prescriber_address": false
-  },
-  "ai_config": {
-    "base_url": "http://localhost:8080/v1",
-    "model_name": "phi-3-mini-local",
-    "api_key": "",
-    "system_prompt": "You are a pharmacist AI assistant verifying prescription data entry accuracy. \n\nYour task:\n1. Compare entered vs source text for each field\n2. Account for OCR errors, typos, and semantic equivalents\n3. For drug names: different dosages = different drugs (metformin 500mg \u2260 metformin 1000mg)\n4. For names: preserve format importance (John Smith \u2260 Smith John)\n\nResponse format (EXACTLY as shown):\npatient_name: [0-100 score]\nprescriber_name: [0-100 score] \ndrug_name: [0-100 score]\ndirection_sig: [0-100 score]\n\nOnly include fields that are provided. Use whole numbers only.",
-    "user_prompt": "You are a pharmacist AI assistant verifying prescription data entry accuracy. \n\nYour task:\n1. Compare entered vs source text for each field\n2. Account for OCR errors, typos, and semantic equivalents\n3. For drug names: different dosages = different drugs (metformin 500mg \u2260 metformin 1000mg)\n4. For names: preserve format importance (John Smith \u2260 Smith John)\n\nResponse format (EXACTLY as shown):\npatient_name: [0-100 score]\nprescriber_name: [0-100 score] \ndrug_name: [0-100 score]\ndirection_sig: [0-100 score]\n\nOnly include fields that are provided. Use whole numbers only. No explanation, no reasoning, just numbers.\n\nPlease verify all prescription fields:\n\nPatient Name:\nEntered: {patient_name_entered}\nSource: {patient_name_source}\n\nPrescriber Name:\nEntered: {prescriber_name_entered}\nSource: {prescriber_name_source}\n\nDrug Name:\nEntered: {drug_name_entered}\nSource: {drug_name_source}\n\nDirections/Sig:\nEntered: {direction_sig_entered}\nSource: {direction_sig_source}"
-  },
-  "advanced_settings": {
-    "trigger": {
-      "keywords": [
-        "NEW"
-      ],
-      "keyword_similarity_threshold": 90,
-      "min_keyword_matches": 1,
-      "lost_reset_delay_seconds": 5.0
+    "timing": {
+        "fast_polling_seconds": 0.5,
+        "max_static_sleep_seconds": 2.0,
+        "same_prescription_wait_seconds": 3.0,
+        "trigger_content_load_delay_seconds": 0.5,
+        "verification_wait_seconds": 0.5,
+        "trigger_check_interval_seconds": 1.0,
+        "ocr_retry_delay_seconds": 0.5,
+        "ocr_max_retries": 2
     },
-    "overlay": {
-      "min_display_seconds": 3.0
+    "thresholds": {
+        "patient": 80,
+        "prescriber": 80,
+        "drug": 80,
+        "sig": 80
     },
-    "hashing": {
-      "crop_box": {
-        "left": 50,
-        "top": 150,
-        "right": 800,
-        "bottom": 500
-      },
-      "resize_to": [
-        32,
-        32
-      ],
-      "blur_radius": 0.5,
-      "bucket_size": 8
+    "regions": {
+        "trigger": [
+            436,
+            342,
+            490,
+            366
+        ],
+        "rx_number": [
+            96,
+            172,
+            148,
+            188
+        ],
+        "fields": {
+            "patient_name": {
+                "entered": [
+                    90,
+                    260,
+                    272,
+                    279
+                ],
+                "source": [
+                    524,
+                    524,
+                    978,
+                    548
+                ],
+                "score_fn": "token_sort_ratio",
+                "threshold_key": "patient",
+                "verification_method": "ai"
+            },
+            "prescriber_name": {
+                "entered": [
+                    90,
+                    334,
+                    289,
+                    353
+                ],
+                "source": [
+                    526,
+                    398,
+                    944,
+                    421
+                ],
+                "score_fn": "token_sort_ratio",
+                "threshold_key": "prescriber",
+                "verification_method": "ai"
+            },
+            "drug_name": {
+                "entered": [
+                    90,
+                    510,
+                    308,
+                    532
+                ],
+                "source": [
+                    535,
+                    667,
+                    968,
+                    693
+                ],
+                "score_fn": "ratio",
+                "threshold_key": "drug",
+                "verification_method": "ai"
+            },
+            "direction_sig": {
+                "entered": [
+                    25,
+                    804,
+                    393,
+                    829
+                ],
+                "source": [
+                    538,
+                    751,
+                    1152,
+                    778
+                ],
+                "score_fn": "ratio",
+                "threshold_key": "sig",
+                "verification_method": "ai"
+            },
+            "patient_dob": {
+                "entered": [
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                "source": [
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                "score_fn": "ratio",
+                "threshold_key": "patient_dob"
+            },
+            "patient_phone": {
+                "entered": [
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                "source": [
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                "score_fn": "ratio",
+                "threshold_key": "patient_phone"
+            },
+            "patient_address": {
+                "entered": [
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                "source": [
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                "score_fn": "ratio",
+                "threshold_key": "patient_address"
+            },
+            "prescriber_address": {
+                "entered": [
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                "source": [
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                "score_fn": "ratio",
+                "threshold_key": "prescriber_address"
+            }
+        }
+    },
+    "automation": {
+        "send_key_on_all_match": true,
+        "key_on_all_match": "f12",
+        "key_delay_seconds": 0.5
+    },
+    "tesseract": {
+        "config_options": "--psm 7",
+        "fallback_config": "--psm 8"
+    },
+    "ocr_provider": "auto",
+    "easyocr": {
+        "use_gpu": true,
+        "confidence_threshold": 0.5
+    },
+    "optional_fields_enabled": {
+        "patient_dob": false,
+        "patient_phone": false,
+        "patient_address": false,
+        "prescriber_address": false
+    },
+    "ai_config": {
+        "base_url": "http://192.168.100.187:8081",
+        "model_name": "llama-3.2-3b",
+        "api_key": "",
+        "system_prompt": "You are a pharmacist verifying prescription data entry accuracy and gives a matching score:\n1. Verify entered vs source text for accuracy and equivalency\n2. Account for OCR artifacts\n3. give equivalency score for drugs (brandname = generic)\n4. matching one of the source prescribers (if there are 2, separated by '/') is a match\n5. use semantic analysis for directions\n\nResponse format (EXACTLY as shown, Only include fields that are provided. Use whole numbers only.):\npatient_name: [0-100 score]\nprescriber_name: [0-100 score] \ndrug_name: [0-100 score]\ndirection_sig: [0-100 score]\n\n",
+        "user_prompt": "Patient Name:\nEntered: {patient_name_entered}\nSource: {patient_name_source}\n\nPrescriber Name:\nEntered: {prescriber_name_entered}\nSource: {prescriber_name_source}\n\nDrug Name:\nEntered: {drug_name_entered}\nSource: {drug_name_source}\n\nDirections/Sig:\nEntered: {direction_sig_entered}\nSource: {direction_sig_source}"
+    },
+    "advanced_settings": {
+        "trigger": {
+            "keywords": [
+                "NEW"
+            ],
+            "keyword_similarity_threshold": 90,
+            "min_keyword_matches": 1,
+            "lost_reset_delay_seconds": 5.0
+        },
+        "overlay": {
+            "min_display_seconds": 3.0
+        },
+        "hashing": {
+            "crop_box": {
+                "left": 50,
+                "top": 150,
+                "right": 800,
+                "bottom": 500
+            },
+            "resize_to": [
+                32,
+                32
+            ],
+            "blur_radius": 0.5,
+            "bucket_size": 8
+        }
     }
-  }
 }

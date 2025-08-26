@@ -222,7 +222,7 @@ class VerificationController:
             logging.error(f"Error sending key press: {e}")
 
     def _extract_rx_number(self, screenshot: Image.Image) -> str:
-        """Extract the Rx number from the rx_number region."""
+        """Extract the Rx number from the rx_number region with validation."""
         try:
             rx_region = self.config["regions"].get("rx_number") or self.config["regions"]["trigger"]
             rx_text = self.ocr_provider.get_text_from_region(screenshot, tuple(rx_region))
@@ -236,10 +236,22 @@ class VerificationController:
                 match = re.search(pattern, text_lower)
                 if match:
                     rx_number = match.group(1)
-                    logging.debug(f"Rx extraction - Pattern {i+1} matched: '{rx_number}'")
+                    
+                    # Validate: must be all digits
+                    if not rx_number.isdigit():
+                        logging.debug(f"Rx extraction - Pattern {i+1} matched '{rx_number}' but contains non-digits, skipping")
+                        continue
+                    
+                    # Validate: if we have a previous Rx number, new one should have same digit count
+                    if self.last_rx_number and self.last_rx_number.isdigit():
+                        if len(rx_number) != len(self.last_rx_number):
+                            logging.warning(f"Rx extraction - Pattern {i+1} matched '{rx_number}' but length ({len(rx_number)}) differs from previous Rx '{self.last_rx_number}' length ({len(self.last_rx_number)}), likely UI shift issue")
+                            continue
+                    
+                    logging.debug(f"Rx extraction - Pattern {i+1} matched and validated: '{rx_number}'")
                     return rx_number
             
-            logging.debug(f"Rx extraction - No patterns matched in: '{text_lower}'")
+            logging.debug(f"Rx extraction - No valid patterns matched in: '{text_lower}'")
             return ""
         except Exception as e:
             logging.error(f"Error extracting Rx number: {e}")
