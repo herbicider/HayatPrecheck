@@ -2,7 +2,7 @@
 
 **08/25/2025: Vision Language Model (VLM) Integration** (Testing and improving)
 
-**🎯 VLM-Powered Direct Image Verification**: The system now supports Vision Language Models for direct prescription image comparison without OCR text extraction. This revolutionary approach analyzes screenshots directly using AI vision capabilities, providing superior accuracy for handwritten prescriptions and complex layouts while maintaining visual context and formatting. Configure your VLM server (I'm running Qwen2-VL on a 8Gb Vram PC) and enable visual point-and-click region selection through the new VLM Configuration GUI.
+**🎯 VLM-Powered Direct Image Verification**: The system now supports Vision Language Models for direct prescription image comparison without OCR text extraction. This revolutionary approach analyzes screenshots directly using AI vision capabilities, providing superior accuracy for handwritten prescriptions and complex layouts while maintaining visual context and formatting. Configure your VLM server (I'm running Qwen2-VL on a 8Gb Vram PC, the low VRAM is limiting the size the of image, by which the verification quality is low. I have ordered the RTX 5080 16Gb for testing purpose. I stil counting on my nVIDIA DXG Spark order, expected mid Sep now. It should load the 70B model eaisly). All AIs are using the OpenAI API standard. 
 
 **08/23/2025: Major Improvement in OCR performance!**
 
@@ -16,13 +16,13 @@
 
 **AI-Powered Verification**: The system now is able to integrate with OpenAI-compatible APIs for intelligent text comparison and semantic matching. Configure your preferred AI endpoint, API key, and model through the dedicated AI settings page. Customize system and user prompts to optimize verification accuracy for your specific workflow. It allows you to choos what to use AI and what to use traditional fuzzy matching on a per-field basis for maximum flexibility and HIPAA compliance (NEVER send patient info to online AI). 
 
-I tried *Gemma 3 1b* model but the accuracy was not satisfying, now I'm running *Llama 3.2 3b Q4 K M* model via *llamacpp* on a Mac mini M1 8Gb. The 3b model fits the server capability and provided perfect balance between speed and accuracy. The default prompt and settings are set around this model. You can use a more powerful PC as the AI server but I'm trying to keep the cost low and efficient for small business. A used M1 Mac Mini 8Gb is only about $250, it's running my PHP8 for CRM, MySQL, sFTP, all python reports and now the local AI model fine. Well bang for the buck!
+I tried *Gemma 3 1b* model but the accuracy was not satisfying, also tried different 3.2B and 4B models. Now I'm running *Mistral-7B-Q4-K_M* model via *llamacpp* on a Mac mini M1 8Gb, it fits the server capability and provided perfect balance between speed and accuracy. The default prompt and settings are set around this model. You can use a more powerful PC as the AI server but I'm trying to keep the cost low and efficient for small business. A used M1 Mac Mini 8Gb is only about $250, it's running my PHP8 for CRM, MySQL, sFTP, all python reports and now the local AI model fine. Well bang for the buck!
 
 **🔒 HIPAA Compliance Notice**: For maximum privacy protection, use local AI models (like Phi-3 mini, Gemma 3, or Qwen3 via llamacpp) instead of cloud-based APIs when processing patient data. During development and testing, I tested with Phi-3 mini to ensure sensitive information never leaves the premises.
 
 **08/15/2025: Major OCR Engine Update**
 
-**PaddleOCR Removed**: After extensive testing, PaddleOCR has been removed from the application due to poor performance with small text areas. It's reserved for future full page VLLM analysis. 
+**PaddleOCR Removed**: After extensive testing, PaddleOCR has been removed from the application due to poor performance with small text areas. It's reserved for future full page VLM analysis. 
 
 **Current OCR Strategy**: The application now uses a dual-engine approach with **automatic selection**:
 - **EasyOCR**: Primary choice for GPU-enabled systems (better accuracy)
