@@ -55,7 +55,7 @@ class SettingsManager:
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r') as f:
                     self.config = json.load(f)
-                self.logger.info(f"Configuration loaded from {self.config_file}")
+                self.logger.debug(f"Configuration loaded from {self.config_file}")  # Changed from INFO to DEBUG
                 return True
             else:
                 self.logger.error(f"Configuration file {self.config_file} not found")
@@ -70,7 +70,7 @@ class SettingsManager:
             if os.path.exists(self.vlm_config_file):
                 with open(self.vlm_config_file, 'r') as f:
                     self.vlm_config = json.load(f)
-                self.logger.info(f"VLM configuration loaded from {self.vlm_config_file}")
+                self.logger.debug(f"VLM configuration loaded from {self.vlm_config_file}")  # Changed from INFO to DEBUG
                 return True
             else:
                 self.logger.error(f"VLM configuration file {self.vlm_config_file} not found")

@@ -16,6 +16,12 @@ from core.logger_config import log_ocr_performance
 # Global cache for OCR providers to avoid reinitialization
 _ocr_provider_cache = {}
 
+# Static flag to prevent repeated availability logging
+_availability_logged = False
+
+# Counter for cache usage logging
+_cache_usage_count = 0
+
 def check_gpu_availability():
     """Check if a supported GPU is available for deep learning."""
     try:
@@ -55,15 +61,19 @@ def auto_select_ocr_provider():
 
 def check_ocr_availability():
     """Check which OCR providers are available on the system."""
+    global _availability_logged
+    
     available_providers = []
     
     # Check EasyOCR
     try:
         import easyocr
         available_providers.append("easyocr")
-        logging.info("EasyOCR is available")
+        if not _availability_logged:
+            logging.info("EasyOCR is available")
     except ImportError:
-        logging.warning("EasyOCR not available - install with: pip install easyocr")
+        if not _availability_logged:
+            logging.warning("EasyOCR not available - install with: pip install easyocr")
     
     # Check Tesseract
     try:
@@ -71,9 +81,14 @@ def check_ocr_availability():
         # Try to run tesseract to verify it's actually working
         pytesseract.get_tesseract_version()
         available_providers.append("tesseract")
-        logging.info("Tesseract is available")
+        if not _availability_logged:
+            logging.info("Tesseract is available")
     except Exception as e:
-        logging.warning(f"Tesseract not available: {e}")
+        if not _availability_logged:
+            logging.warning(f"Tesseract not available: {e}")
+    
+    # Mark that we've logged availability info (only log once)
+    _availability_logged = True
     
     if not available_providers:
         logging.error("No OCR providers available! Please install either EasyOCR (pip install easyocr) or Tesseract")
@@ -140,7 +155,12 @@ def get_cached_ocr_provider(provider_type: str, advanced_settings: Dict[str, Any
             else:
                 raise ImportError("All OCR providers failed to initialize")
     else:
-        logging.info(f"Using cached {provider_type} OCR provider instance")
+        global _cache_usage_count
+        _cache_usage_count += 1
+        
+        # Only log cache usage every 50 times to reduce noise
+        if _cache_usage_count % 50 == 1:  # Log on 1st, 51st, 101st usage, etc.
+            logging.debug(f"Using cached {provider_type} OCR provider instance (usage count: {_cache_usage_count})")
     
     return _ocr_provider_cache[cache_key]
 

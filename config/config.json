@@ -17,10 +17,10 @@
   },
   "regions": {
     "trigger": [
-      436,
-      342,
-      490,
-      366
+      479,
+      252,
+      526,
+      272
     ],
     "rx_number": [
       96,
@@ -37,10 +37,10 @@
           279
         ],
         "source": [
-          524,
-          524,
-          978,
-          548
+          521,
+          506,
+          980,
+          533
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "patient",
@@ -54,10 +54,10 @@
           353
         ],
         "source": [
-          526,
-          398,
-          944,
-          421
+          521,
+          389,
+          946,
+          412
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "prescriber",
@@ -71,10 +71,10 @@
           532
         ],
         "source": [
-          535,
-          667,
+          530,
+          648,
           968,
-          693
+          667
         ],
         "score_fn": "ratio",
         "threshold_key": "drug",
@@ -82,16 +82,16 @@
       },
       "direction_sig": {
         "entered": [
-          25,
-          804,
-          393,
-          829
+          22,
+          805,
+          389,
+          847
         ],
         "source": [
-          538,
-          751,
-          1152,
-          778
+          532,
+          725,
+          1155,
+          753
         ],
         "score_fn": "ratio",
         "threshold_key": "sig",
@@ -164,7 +164,7 @@
     }
   },
   "automation": {
-    "send_key_on_all_match": false,
+    "send_key_on_all_match": true,
     "key_on_all_match": "f12",
     "key_delay_seconds": 0.5
   },
@@ -193,7 +193,7 @@
   "advanced_settings": {
     "trigger": {
       "keywords": [
-        "NEW"
+        "Image"
       ],
       "keyword_similarity_threshold": 90,
       "min_keyword_matches": 1,

@@ -2,10 +2,10 @@
   "vlm_config": {
     "base_url": "http://10.147.17.98:8081/v1",
     "api_key": "llamacpp",
-    "model_name": "",
-    "max_tokens": 500,
+    "model_name": ".\\models\\Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+    "max_tokens": 1024,
     "temperature": 0.1,
-    "system_prompt": "You are a prescription verification assistant. Compare the entered prescription data (first image) with the source prescription (second image).\\n\\nAnalyze the following fields if visible:\\n- patient_name\\n- prescriber_name\\n- drug_name\\n- direction_sig (directions for use)\\n\\nFor each field, provide a confidence score from 0-100 based on how well the entered data matches the source:\\n- 90-100: Perfect or near-perfect match\\n- 70-89: Good match with minor differences\\n- 50-69: Moderate match with some discrepancies\\n- 30-49: Poor match with significant differences\\n- 0-29: Very poor match or completely different\\n\\nFormat your response as:\\nfield_name: score\\n\\nOnly include fields that are clearly visible in both images.",
+    "system_prompt": "You are a prescription verification assistant. Compare the entered prescription data (first image) with the source prescription (second image). Analyze the following fields if visible:\npatient_name\nprescriber_name (written by)\ndrug_name (item or medication prescribed)\ndirection_sig (directions for use)\nFor each field, provide a confidence score from low to high based on how well the entered data matches the source of each section. Use drug equivalency knowledge and semantic analysis.  \nResponse format (EXACTLY as shown, Only include fields that are provided. Use whole numbers only.)\nBe very careful and conservative with your scoring, give 0 if you are not sure:\npatient_name: [0-100 score]\nprescriber_name: [0-100 score] \ndrug_name: [0-100 score]\ndirection_sig: [0-100 score]",
     "user_prompt": "Please compare these prescription images. First image shows entered data, second shows the source prescription. Analyze all visible prescription fields and provide confidence scores."
   },
   "vlm_regions": {
@@ -23,10 +23,10 @@
     ]
   },
   "vlm_settings": {
-    "image_format": "PNG",
-    "image_quality": 95,
+    "image_format": "JPEG",
+    "image_quality": 75,
     "auto_enhance": true,
-    "resize_max_width": 1024,
-    "resize_max_height": 768
+    "resize_max_width": 400,
+    "resize_max_height": 250
   }
 }

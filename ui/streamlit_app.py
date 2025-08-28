@@ -822,144 +822,73 @@ class SimplePharmacyApp:
     def monitoring_page(self):
         """Display the monitoring/logging page with live OCR and scores"""
         st.title("📊 Pharmacy Verification Monitor")
-        
-        # Verification method selection
-        self.show_verification_method_selection()
-        
-        st.markdown("---")
-        
-        # Automation settings section
-        self.show_automation_settings()
-        
-        st.markdown("---")
-        
-        # Timing settings section
-        self.show_timing_settings()
-        
-        # Control buttons
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
+
+        # Controls at the top
+        c1, c2, c3 = st.columns([1, 1, 2])
+        with c1:
             if st.button("🟢 Start Monitoring", disabled=st.session_state.verification_running):
                 self.start_verification()
-                
-        with col2:
+        with c2:
             if st.button("🔴 Stop Monitoring", disabled=not st.session_state.verification_running):
                 self.stop_verification()
-                
-        with col3:
-            if st.button("🔄 Refresh"):
-                st.rerun()
-                
-        with col4:
-            if st.button("🗑️ Clear Logs"):
-                if os.path.exists(self.log_file):
-                    open(self.log_file, 'w', encoding='utf-8').close()
-                st.success("Logs cleared!")
-                st.rerun()
+        with c3:
+            status_color = "�" if st.session_state.verification_running else "🔴"
+            status_text = "Running" if st.session_state.verification_running else "Stopped"
+            st.markdown(f"**Status:** {status_color} {status_text}")
 
-        # Status indicator
-        status_color = "🟢" if st.session_state.verification_running else "🔴"
-        status_text = "Running" if st.session_state.verification_running else "Stopped"
-        st.markdown(f"**Status:** {status_color} {status_text}")
-        
-        # Live Terminal Output Display
+        st.markdown("---")
+
+        # Verification method selection (single-line selector only)
+        self.show_verification_method_selection()
+
+        st.markdown("---")
+
+        # Automation settings (kept as-is)
+        self.show_automation_settings()
+
+        # Timing settings hidden by default in an expander
+        with st.expander("⏱️ Timing Settings (advanced)", expanded=False):
+            self.show_timing_settings()
+
+        # Live Terminal Output Display (monitoring only)
         if st.session_state.verification_running:
             self.show_live_terminal_output()
-        
-        # Log display (smaller section now)
-        self.show_log_section()
 
     def show_verification_method_selection(self):
-        """Show verification method selection (OCR vs VLM)"""
-        st.subheader("🔍 Verification Method")
-        
+        """Show verification method selection (OCR vs VLM) as a single select line."""
         if not self.config:
-            st.warning("No configuration loaded. Please set up coordinates first.")
             return
-        
-        # Get current verification method
+
+        # Current method and options
         current_method = self.config.get("verification_mode", "ocr")
-        
-        st.info("💡 **Choose Verification Method:** OCR extracts text then compares, VLM directly compares images")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            method_options = [
-                ("ocr", "🔤 OCR + Text Comparison"),
-                ("vlm", "👁️ Vision Language Model")
-            ]
-            
-            method_labels = [label for _, label in method_options]
-            method_values = [value for value, _ in method_options]
-            
-            try:
-                current_index = method_values.index(current_method)
-            except ValueError:
-                current_index = 0
-            
-            selected_method = st.selectbox(
-                "Verification Method:",
-                options=method_values,
-                format_func=lambda x: method_labels[method_values.index(x)],
-                index=current_index,
-                help="Choose between OCR-based text comparison or direct image comparison with VLM"
-            )
-        
-        with col2:
-            # Show method-specific info
-            if selected_method == "ocr":
-                st.info("""
-                **🔤 OCR Mode:**
-                • Uses OCR to extract text
-                • Compares text strings
-                • Faster, less resource intensive
-                • Good for clear, typed text
-                """)
-            else:
-                st.info("""
-                **👁️ VLM Mode:**
-                • AI vision directly compares images
-                • No OCR errors or text extraction
-                • Better for handwriting & complex layouts
-                • Requires vision-capable model
-                """)
-        
-        # Update method if changed
+        method_options = [
+            ("ocr", "🔤 OCR + Text Comparison"),
+            ("vlm", "👁️ Vision Language Model")
+        ]
+        method_values = [value for value, _ in method_options]
+        method_labels = {value: label for value, label in method_options}
+
+        try:
+            current_index = method_values.index(current_method)
+        except ValueError:
+            current_index = 0
+
+        selected_method = st.selectbox(
+            "Verification Method:",
+            options=method_values,
+            format_func=lambda x: method_labels[x],
+            index=current_index,
+        )
+
+        # Save without extra UI noise
         if selected_method != current_method:
             self.config["verification_mode"] = selected_method
-            
             try:
                 self.settings_manager.config = self.config
                 self.settings_manager.save_config(create_backup=True)
-                st.success(f"✅ Verification method updated to {method_labels[method_values.index(selected_method)]}!")
-                time.sleep(0.5)
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Failed to save verification method: {e}")
-        
-        # Show status
-        current_label = method_labels[method_values.index(selected_method)]
-        st.success(f"**Current Method:** {current_label}")
-        
-        # Method-specific warnings/requirements
-        if selected_method == "vlm":
-            st.warning("⚠️ **VLM Requirements:** Make sure you have configured VLM settings and regions in the VLM Configuration page")
-            
-            # Quick link to VLM config
-            if st.button("🛠️ Configure VLM Settings"):
-                st.info("💡 Navigate to 'VLM Configuration' in the sidebar to set up vision model")
-        
-        elif selected_method == "ocr":
-            st.info("💡 **OCR Setup:** Make sure your field coordinates are properly configured in Settings")
-            
-            # Show OCR engine status
-            ocr_provider = self.config.get("ocr_provider")
-            if ocr_provider:
-                st.success(f"**OCR Engine:** {ocr_provider.title()}")
-            else:
-                st.warning("⚠️ No OCR engine configured")
 
     def show_automation_settings(self):
         """Display automation settings section"""

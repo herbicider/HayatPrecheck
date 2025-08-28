@@ -51,6 +51,7 @@ class SettingsGUI:
         
         # Initialize all variables first
         self.config: Optional[Dict[str, Any]] = None
+        self.vlm_config: Optional[Dict[str, Any]] = None
         self.current_field: Optional[str] = None
         self.current_region_type: Optional[str] = None
         
@@ -81,6 +82,7 @@ class SettingsGUI:
         self.optional_field_vars = {}
         
         # Initialize UI variables
+        self.mode_var: tk.StringVar = tk.StringVar(value="ocr")  # 'ocr' or 'vlm'
         self.field_var: tk.StringVar = tk.StringVar()
         self.region_var: tk.StringVar = tk.StringVar(value="entered")
         self.verification_method_var: tk.StringVar = tk.StringVar()
@@ -101,9 +103,38 @@ class SettingsGUI:
             messagebox.showerror("Error", "Could not load config.json. Please ensure the file exists.")
             self.root.destroy()
             return
+        # Load VLM configuration (create defaults if not present)
+        self.load_vlm_config()
             
         self.setup_ui()
         self.take_screenshot()
+
+    def load_vlm_config(self) -> None:
+        """Load VLM configuration from config/vlm_config.json, create defaults if missing."""
+        try:
+            vlm_path = os.path.join("config", "vlm_config.json")
+            if os.path.exists(vlm_path):
+                with open(vlm_path, 'r') as f:
+                    self.vlm_config = json.load(f)
+            else:
+                self.vlm_config = {
+                    "vlm_config": {},
+                    "vlm_regions": {
+                        "data_entry": [0, 0, 0, 0],
+                        "source": [0, 0, 0, 0]
+                    },
+                    "vlm_settings": {}
+                }
+        except Exception as e:
+            print(f"Error loading VLM config: {e}")
+            self.vlm_config = {
+                "vlm_config": {},
+                "vlm_regions": {
+                    "data_entry": [0, 0, 0, 0],
+                    "source": [0, 0, 0, 0]
+                },
+                "vlm_settings": {}
+            }
 
     def load_config(self) -> bool:
         """Load configuration from config.json file."""
@@ -157,6 +188,39 @@ class SettingsGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Could not save config: {e}")
             self.update_status("Error saving configuration")
+
+    def save_vlm_config(self):
+        """Save current VLM configuration to config/vlm_config.json with backup."""
+        if not self.vlm_config:
+            messagebox.showerror("Error", "No VLM configuration to save")
+            return
+        try:
+            vlm_path = os.path.join("config", "vlm_config.json")
+            # Backup existing
+            if os.path.exists(vlm_path):
+                backup_dir = os.path.join("config_backups")
+                os.makedirs(backup_dir, exist_ok=True)
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                backup_file = os.path.join(backup_dir, f"vlm_config_backup_{timestamp}.json")
+                with open(vlm_path, 'r') as f:
+                    content = f.read()
+                with open(backup_file, 'w') as f:
+                    f.write(content)
+            # Save new
+            with open(vlm_path, 'w') as f:
+                json.dump(self.vlm_config, f, indent=2)
+            messagebox.showinfo("Success", "VLM configuration saved successfully!")
+            self.update_status("VLM configuration saved")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not save VLM config: {e}")
+            self.update_status("Error saving VLM configuration")
+
+    def save_active_config(self):
+        """Save configuration for the currently active mode."""
+        if self.mode_var.get() == "vlm":
+            self.save_vlm_config()
+        else:
+            self.save_config()
     
     def import_config(self):
         """Import configuration from a different file."""
@@ -306,7 +370,7 @@ class SettingsGUI:
         file_menu.add_command(label="Import Config...", command=self.import_config)
         file_menu.add_command(label="Export Config...", command=self.export_config)
         file_menu.add_separator()
-        file_menu.add_command(label="Save Config", command=self.save_config, accelerator="Ctrl+S")
+        file_menu.add_command(label="Save (Active Configuration)", command=self.save_active_config, accelerator="Ctrl+S")
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         
@@ -330,9 +394,47 @@ class SettingsGUI:
         tools_menu.add_command(label="Validate All Regions", command=self.validate_all_regions)
         
         # Bind keyboard shortcuts
-        self.root.bind('<Control-s>', lambda e: self.save_config())
+        self.root.bind('<Control-s>', lambda e: self.save_active_config())
         self.root.bind('<F5>', lambda e: self.take_screenshot())
-        
+
+    def on_mode_change(self):
+        """Handle switching between OCR/General and VLM modes."""
+        mode = self.mode_var.get()
+        if mode == "vlm":
+            # Disable field selection; only region selection applies
+            if self.field_combo:
+                self.field_combo.set("")
+                self.field_combo.config(state="disabled")
+            # Show only entered/source radios
+            if self.radio_trigger:
+                self.radio_trigger.pack_forget()
+            if self.radio_rx_number:
+                self.radio_rx_number.pack_forget()
+            if self.radio_entered:
+                self.radio_entered.pack(anchor=tk.W)
+            if self.radio_source:
+                self.radio_source.pack(anchor=tk.W)
+            # Default to 'entered' (maps to data_entry)
+            self.region_var.set("entered")
+            self.current_field = None
+            self.current_region_type = self.region_var.get()
+            # Disable verification method (not applicable here)
+            if self.verification_method_combo:
+                self.verification_method_combo.set('')
+                self.verification_method_combo.config(state='disabled')
+        else:
+            # Enable field selection and restore radios via on_field_change
+            if self.field_combo:
+                self.field_combo.config(state="readonly")
+                if not self.field_var.get():
+                    values = self.field_combo['values']
+                    if values:
+                        self.field_combo.set(values[0])
+            self.on_field_change()
+        # Refresh entries and redraw
+        self.update_coordinate_display()
+        self.draw_all_rectangles()
+
     def setup_control_panel(self, parent):
         """Set up the enhanced control panel."""
         # Header with better spacing
@@ -343,6 +445,12 @@ class SettingsGUI:
                  font=("Arial", 14, "bold")).pack()
         ttk.Label(header_frame, text="Enhanced Pharmacy Verification Tool", 
                  font=("Arial", 9, "italic")).pack(pady=(5, 0))
+        
+        # Mode selection (OCR vs VLM)
+        mode_frame = ttk.LabelFrame(parent, text="Configuration Target", padding=10)
+        mode_frame.pack(fill=tk.X, pady=(10, 15))
+        ttk.Radiobutton(mode_frame, text="OCR & General (config.json)", variable=self.mode_var, value="ocr", command=self.on_mode_change).pack(anchor=tk.W)
+        ttk.Radiobutton(mode_frame, text="VLM Regions (vlm_config.json)", variable=self.mode_var, value="vlm", command=self.on_mode_change).pack(anchor=tk.W)
         
         # Instructions with better formatting and word wrap
         instr_frame = ttk.LabelFrame(parent, text="Instructions", padding=10)
@@ -397,7 +505,7 @@ class SettingsGUI:
         # trigger and rx_number radio buttons will be shown/hidden based on field selection
         self.radio_entered.pack(anchor=tk.W)
         self.radio_source.pack(anchor=tk.W)
-        
+
         # Verification Method selection
         ttk.Label(select_frame, text="Verification Method:", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(10, 0))
         self.verification_method_combo = ttk.Combobox(select_frame, textvariable=self.verification_method_var, width=55, state="disabled")
@@ -464,7 +572,7 @@ class SettingsGUI:
         # Save action (prominent)
         ttk.Separator(button_frame, orient='horizontal').pack(fill=tk.X, pady=5)
         save_btn = ttk.Button(button_frame, text="💾 Save Configuration", 
-                             command=self.save_config)
+                             command=self.save_active_config)
         save_btn.pack(fill=tk.X, pady=5)
         
         # General Settings Panel
@@ -478,12 +586,14 @@ class SettingsGUI:
                                      font=("Arial", 9))
         self.status_label.pack(anchor=tk.W)
         
-        # Initialize field selection to ensure proper UI state
-        if self.field_combo:
-            # Set a default field if none is selected
+        # Apply initial mode configuration now that inputs exist
+        self.on_mode_change()
+        
+        # Initialize field selection to ensure proper UI state (OCR mode only)
+        if self.mode_var.get() == "ocr" and self.field_combo:
             if not self.field_var.get():
                 self.field_var.set("patient_name")
-            self.on_field_change()  # This will properly set up the radio button visibility
+            self.on_field_change()
     
     def setup_settings_panel(self, parent):
         """Set up the general settings panel."""
@@ -1125,6 +1235,52 @@ class SettingsGUI:
     
     def on_release(self, event):
         """Handle mouse release on canvas."""
+        if self.mode_var.get() == "vlm":
+            if self.drag_start and self.current_region_type and self.vlm_config and not self.is_panning:
+                # Get canvas coordinates accounting for scroll position
+                if self.canvas:
+                    canvas_x = self.canvas.canvasx(event.x)
+                    canvas_y = self.canvas.canvasy(event.y)
+                else:
+                    canvas_x = event.x
+                    canvas_y = event.y
+                
+                x1, y1 = self.drag_start
+                x2, y2 = canvas_x, canvas_y
+                # Ensure correct order
+                if x1 > x2:
+                    x1, x2 = x2, x1
+                if y1 > y2:
+                    y1, y2 = y2, y1
+                # Convert to actual screenshot coordinates
+                actual_x1 = int(x1 * self.scale_x)
+                actual_y1 = int(y1 * self.scale_y)
+                actual_x2 = int(x2 * self.scale_x)
+                actual_y2 = int(y2 * self.scale_y)
+                # Clamp to bounds
+                if self.screenshot:
+                    actual_x1 = max(0, min(actual_x1, self.screenshot.width))
+                    actual_y1 = max(0, min(actual_y1, self.screenshot.height))
+                    actual_x2 = max(0, min(actual_x2, self.screenshot.width))
+                    actual_y2 = max(0, min(actual_y2, self.screenshot.height))
+                # Update VLM config
+                region_key = "data_entry" if self.current_region_type == "entered" else "source"
+                self.vlm_config.setdefault("vlm_regions", {})[region_key] = [actual_x1, actual_y1, actual_x2, actual_y2]
+                # Update entries
+                self.coord_vars["coord_0"].set(str(actual_x1))
+                self.coord_vars["coord_1"].set(str(actual_y1))
+                self.coord_vars["coord_2"].set(str(actual_x2))
+                self.coord_vars["coord_3"].set(str(actual_y2))
+                # Store rectangle
+                if self.current_rect:
+                    rect_key = f"vlm_{self.current_region_type}"
+                    self.rectangles[rect_key] = self.current_rect
+                self.draw_all_rectangles()
+                self.update_status(f"Updated VLM {region_key} region")
+                if self.auto_save.get():
+                    self.save_active_config()
+            return
+
         if self.drag_start and self.current_field and self.current_region_type and self.config and not self.is_panning:
             # Get canvas coordinates accounting for scroll position
             if self.canvas:
@@ -1186,6 +1342,13 @@ class SettingsGUI:
     
     def on_field_change(self, event=None):
         """Handle field selection change."""
+        if self.mode_var.get() == "vlm":
+            # In VLM mode, field selection is not applicable.
+            self.current_field = None
+            self.update_coordinate_display()
+            self.draw_all_rectangles()
+            self.update_status("VLM mode: select Data Entry or Source and drag on screenshot")
+            return
         self.current_field = self.field_var.get()
         
         # Show/hide region type options based on field selection
@@ -1250,6 +1413,18 @@ class SettingsGUI:
     
     def update_coordinate_display(self):
         """Update coordinate entry fields with current values."""
+        # VLM mode: map entered->data_entry, source->source
+        if self.mode_var.get() == "vlm" and self.vlm_config and self.current_region_type in ["entered", "source"]:
+            region_key = "data_entry" if self.current_region_type == "entered" else "source"
+            try:
+                coords = self.vlm_config.get("vlm_regions", {}).get(region_key, [0, 0, 0, 0])
+                for i, coord in enumerate(coords):
+                    self.coord_vars[f"coord_{i}"].set(str(coord))
+            except Exception:
+                for i in range(4):
+                    self.coord_vars[f"coord_{i}"].set("")
+            return
+
         if self.current_field and self.current_region_type and self.config:
             try:
                 if self.current_field == "trigger":
@@ -1268,6 +1443,25 @@ class SettingsGUI:
     
     def update_from_entries(self, event=None):
         """Update configuration from coordinate entry fields."""
+        if self.mode_var.get() == "vlm":
+            if not self.current_region_type or not self.vlm_config:
+                return
+            try:
+                coords = [int(self.coord_vars[f"coord_{i}"].get()) for i in range(4)]
+                # Validate
+                if coords[0] >= coords[2] or coords[1] >= coords[3]:
+                    messagebox.showerror("Error", "Invalid coordinates: x1 must be < x2 and y1 must be < y2")
+                    return
+                region_key = "data_entry" if self.current_region_type == "entered" else "source"
+                self.vlm_config.setdefault("vlm_regions", {})[region_key] = coords
+                self.draw_all_rectangles()
+                self.update_status("VLM coordinates updated")
+                if self.auto_save.get():
+                    self.save_active_config()
+            except ValueError:
+                messagebox.showerror("Error", "Please enter valid integer coordinates")
+            return
+
         if not self.current_field or not self.current_region_type or not self.config:
             return
             
@@ -1291,7 +1485,7 @@ class SettingsGUI:
             
             # Auto-save if enabled
             if self.auto_save.get():
-                self.save_config()
+                self.save_active_config()
                 
         except ValueError:
             messagebox.showerror("Error", "Please enter valid integer coordinates")
@@ -1304,7 +1498,7 @@ class SettingsGUI:
     
     def draw_all_rectangles(self):
         """Draw all configured rectangles on the canvas."""
-        if not self.canvas or not self.config or not self.screenshot:
+        if not self.canvas or not self.screenshot:
             return
             
         # Clear existing rectangles
@@ -1318,6 +1512,29 @@ class SettingsGUI:
         
         # Track label positions to avoid overlaps
         used_label_positions = []
+
+        # VLM mode: draw only VLM regions
+        if self.mode_var.get() == "vlm" and self.vlm_config:
+            colors = {"entered": "blue", "source": "green"}
+            for region_type in ["entered", "source"]:
+                region_key = "data_entry" if region_type == "entered" else "source"
+                coords = self.vlm_config.get("vlm_regions", {}).get(region_key, [0, 0, 0, 0])
+                if len(coords) >= 4:
+                    x1 = int(coords[0] / self.scale_x)
+                    y1 = int(coords[1] / self.scale_y)
+                    x2 = int(coords[2] / self.scale_x)
+                    y2 = int(coords[3] / self.scale_y)
+                    color = colors[region_type]
+                    width = 3 if (self.current_region_type == region_type) else 1
+                    rect = self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=width)
+                    self.rectangles[f"vlm_{region_type}"] = rect
+                    if self.show_labels.get():
+                        text = f"vlm_{region_type}"
+                        label_x, label_y = self._find_available_label_position(x1, y1, x2, y2, used_label_positions)
+                        self.canvas.create_text(label_x, label_y, text=text, anchor=tk.NW, 
+                                              fill=color, font=("Arial", 8, "bold"))
+                        used_label_positions.append((label_x, label_y))
+            return
         
         # Draw trigger region
         if "trigger" in self.config["regions"]:

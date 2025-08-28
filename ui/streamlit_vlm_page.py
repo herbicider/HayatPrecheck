@@ -57,20 +57,14 @@ def vlm_settings_page(main_config: Dict[str, Any]):
         st.error("❌ Failed to load VLM configuration")
         return
     
-    # Main tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["🔧 Model Settings", "📐 Region Setup", "🧪 Testing", "📊 Advanced"])
-    
+    # Main tabs (simplified)
+    tab1, tab2 = st.tabs(["🔧 Model Settings", "🧪 Testing"])
+
     with tab1:
         show_model_settings(vlm_config, vlm_config_file)
-    
+
     with tab2:
-        show_region_setup(vlm_config, vlm_config_file)
-    
-    with tab3:
         show_vlm_testing(vlm_config)
-    
-    with tab4:
-        show_advanced_settings(vlm_config, vlm_config_file)
 
 def load_vlm_config(config_file: str) -> Optional[Dict[str, Any]]:
     """Load VLM configuration from file"""
@@ -99,7 +93,9 @@ def load_vlm_config(config_file: str) -> Optional[Dict[str, Any]]:
                     "image_quality": 95,
                     "auto_enhance": True,
                     "resize_max_width": 1024,
-                    "resize_max_height": 768
+                    "resize_max_height": 768,
+                    "max_image_tokens_total": 1024,
+                    "max_image_tokens_per_image": 512
                 }
             }
             save_vlm_config(default_config, config_file)
@@ -123,6 +119,7 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
     st.subheader("🤖 Model Configuration")
     
     vlm_model_config = vlm_config.get("vlm_config", {})
+    vlm_settings = vlm_config.get("vlm_settings", {})
     
     col1, col2 = st.columns(2)
     
@@ -169,6 +166,25 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
             help="Lower = more consistent, Higher = more creative"
         )
     
+    # Image capture basics (moved from Advanced)
+    st.write("**🖼️ Image Capture Settings:**")
+    img_col1, img_col2 = st.columns(2)
+    with img_col1:
+        image_format = st.selectbox(
+            "Image Format:",
+            options=["PNG", "JPEG"],
+            index=0 if vlm_settings.get("image_format", "PNG") == "PNG" else 1,
+            help="Format for captured images"
+        )
+    with img_col2:
+        image_quality = st.slider(
+            "Image Quality:",
+            min_value=50,
+            max_value=100,
+            value=vlm_settings.get("image_quality", 95),
+            help="Image quality (for JPEG format)"
+        )
+
     # System prompt configuration
     st.write("**📝 System Prompt:**")
     system_prompt = st.text_area(
@@ -187,6 +203,25 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
         help="The message sent with each comparison request"
     )
     
+    # Quick access to coordinate GUI (open settings_gui.py)
+    st.markdown("---")
+    st.write("**🛠️ Coordinate Setup:**")
+    if st.button("🎯 Open Settings GUI (settings_gui.py)"):
+        try:
+            # Path to settings_gui.py in ui folder
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            gui_script = os.path.join(script_dir, "settings_gui.py")
+            if not os.path.exists(gui_script):
+                st.error("❌ settings_gui.py not found in the UI folder")
+            else:
+                if sys.platform.startswith('win'):
+                    subprocess.Popen([sys.executable, gui_script], creationflags=subprocess.CREATE_NEW_CONSOLE)
+                else:
+                    subprocess.Popen([sys.executable, gui_script])
+                st.success("✅ Settings GUI launched! Check for a new window.")
+        except Exception as e:
+            st.error(f"❌ Failed to launch Settings GUI: {e}")
+
     # Save button
     if st.button("💾 Save Model Settings", type="primary"):
         vlm_config["vlm_config"] = {
@@ -198,6 +233,11 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
             "system_prompt": system_prompt,
             "user_prompt": user_prompt
         }
+        # Persist image settings under vlm_settings (preserve other keys)
+        updated_vlm_settings = dict(vlm_settings)
+        updated_vlm_settings["image_format"] = image_format
+        updated_vlm_settings["image_quality"] = image_quality
+        vlm_config["vlm_settings"] = updated_vlm_settings
         
         if save_vlm_config(vlm_config, config_file):
             st.success("✅ Model settings saved!")
@@ -317,37 +357,9 @@ def test_screenshot(coords: list, region_name: str):
 def show_vlm_testing(vlm_config: Dict[str, Any]):
     """Show VLM testing interface"""
     st.subheader("🧪 VLM Testing")
-    
-    st.info("🔬 **Test your VLM setup:** Check connection, capture regions, and run verification tests")
-    
-    # Connection test
-    st.write("**🔌 Connection Test:**")
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        if st.button("🔍 Test VLM Connection", type="primary"):
-            test_vlm_connection(vlm_config)
-    
-    with col2:
-        st.caption("Tests if the VLM model is accessible and responding")
-    
-    # Region capture test
-    st.write("**📸 Region Capture Test:**")
-    
-    col3, col4 = st.columns(2)
-    
-    with col3:
-        if st.button("📝 Capture Data Entry"):
-            capture_and_show_region(vlm_config, "data_entry", "Data Entry")
-    
-    with col4:
-        if st.button("📋 Capture Source"):
-            capture_and_show_region(vlm_config, "source", "Source")
-    
-    # Full verification test
-    st.write("**🎯 Full Verification Test:**")
-    
+    # Only two actions per requirement
+    if st.button("🔍 Test VLM Connection", type="primary"):
+        test_vlm_connection(vlm_config)
     if st.button("🚀 Run Complete VLM Verification", type="secondary"):
         run_complete_vlm_test(vlm_config)
 
@@ -524,6 +536,30 @@ def show_advanced_settings(vlm_config: Dict[str, Any], config_file: str):
             value=vlm_settings.get("resize_max_height", 768),
             help="Maximum image height (larger images will be resized)"
         )
+
+        st.write("**🧮 Image Token Budget (28px patches):**")
+
+        max_image_tokens_total = st.number_input(
+            "Max Image Tokens (total):",
+            min_value=128,
+            max_value=4096,
+            value=int(vlm_settings.get("max_image_tokens_total", 1024)),
+            step=64,
+            help="Total image token budget per request. Roughly equals ceil(W/28)*ceil(H/28) summed across images. Increase for stronger GPUs."
+        )
+
+        default_per_image = max(64, int(vlm_settings.get("max_image_tokens_per_image", max_image_tokens_total // 2)))
+        max_image_tokens_per_image = st.number_input(
+            "Max Image Tokens (per image):",
+            min_value=64,
+            max_value=4096,
+            value=min(default_per_image, max_image_tokens_total),
+            step=64,
+            help="Per-image token cap. Each image is resized to keep its tokens under this value."
+        )
+
+        if max_image_tokens_per_image > max_image_tokens_total:
+            st.warning("Per-image token cap cannot exceed total tokens. It will be clamped on save.")
     
     # Save advanced settings
     if st.button("💾 Save Advanced Settings", type="primary"):
@@ -532,7 +568,9 @@ def show_advanced_settings(vlm_config: Dict[str, Any], config_file: str):
             "image_quality": image_quality,
             "auto_enhance": auto_enhance,
             "resize_max_width": resize_max_width,
-            "resize_max_height": resize_max_height
+            "resize_max_height": resize_max_height,
+            "max_image_tokens_total": int(max_image_tokens_total),
+            "max_image_tokens_per_image": int(min(max_image_tokens_per_image, max_image_tokens_total))
         }
         
         if save_vlm_config(vlm_config, config_file):

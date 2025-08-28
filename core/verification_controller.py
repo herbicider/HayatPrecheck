@@ -86,6 +86,7 @@ class VerificationController:
         self.recently_triggered = False
         self.last_rx_number = None
         self.last_screenshot_hash = None
+        self.trigger_check_count = 0  # Add counter for trigger checks
         self.verification_in_progress = False
         self.overlay_root = None
         self.last_trigger_time = 0
@@ -175,8 +176,12 @@ class VerificationController:
                 canvas.pack(fill="both", expand=True)
 
                 for result in results.values():
-                    color = "#00ff00" if result["match"] else "#ff0000"
-                    canvas.create_rectangle(*result["coords"], outline=color, width=3)
+                    # Check if coords exist before trying to draw
+                    if "coords" in result and len(result["coords"]) == 4:
+                        color = "#00ff00" if result["match"] else "#ff0000"
+                        canvas.create_rectangle(*result["coords"], outline=color, width=3)
+                    else:
+                        logging.warning(f"Skipping overlay for field - missing or invalid coords: {result.get('coords', 'None')}")
 
                 root.update()
                 logging.info("Overlay displayed successfully.")
@@ -222,15 +227,32 @@ class VerificationController:
             logging.error(f"Error sending key press: {e}")
 
     def _extract_rx_number(self, screenshot: Image.Image) -> str:
-        """Extract the Rx number from the rx_number region with validation."""
+        """Extract the Rx number from the rx_number region with validation.
+
+        Always use OCR (Tesseract preferred, EasyOCR fallback) for Rx number extraction.
+        This ensures consistency with the OCR-only trigger detection approach.
+        """
         try:
             rx_region = self.config["regions"].get("rx_number") or self.config["regions"]["trigger"]
-            rx_text = self.ocr_provider.get_text_from_region(screenshot, tuple(rx_region))
+
+            from core.ocr_provider import get_cached_ocr_provider
+            
+            # Try Tesseract first for speed and consistency
+            try:
+                rx_ocr = get_cached_ocr_provider("tesseract", self.advanced_settings)
+                rx_text = rx_ocr.get_text_from_region(screenshot, tuple(rx_region))
+                ocr_method = "Tesseract"
+            except Exception as tesseract_error:
+                logging.debug(f"Tesseract failed for Rx extraction, trying EasyOCR: {tesseract_error}")
+                # Fallback to EasyOCR
+                rx_ocr = get_cached_ocr_provider("easyocr", self.advanced_settings)
+                rx_text = rx_ocr.get_text_from_region(screenshot, tuple(rx_region))
+                ocr_method = "EasyOCR"
             
             patterns = [r"rx\s*-\s*(\d+)", r"rx\s+(\d+)", r"(\d{4,})"]
             text_lower = rx_text.lower()
             
-            logging.debug(f"Rx extraction - OCR text: '{rx_text}' -> '{text_lower}'")
+            logging.debug(f"Rx extraction ({ocr_method}) - OCR text: '{rx_text}' -> '{text_lower}'")
             
             for i, pattern in enumerate(patterns):
                 match = re.search(pattern, text_lower)
@@ -248,47 +270,70 @@ class VerificationController:
                             logging.warning(f"Rx extraction - Pattern {i+1} matched '{rx_number}' but length ({len(rx_number)}) differs from previous Rx '{self.last_rx_number}' length ({len(self.last_rx_number)}), likely UI shift issue")
                             continue
                     
-                    logging.debug(f"Rx extraction - Pattern {i+1} matched and validated: '{rx_number}'")
+                    logging.debug(f"Rx extraction ({ocr_method}) - Pattern {i+1} matched and validated: '{rx_number}'")
                     return rx_number
             
-            logging.debug(f"Rx extraction - No valid patterns matched in: '{text_lower}'")
+            logging.debug(f"Rx extraction ({ocr_method}) - No valid patterns matched in: '{text_lower}'")
             return ""
         except Exception as e:
             logging.error(f"Error extracting Rx number: {e}")
             return ""
 
     def _check_trigger(self, screenshot: Image.Image) -> Tuple[bool, str]:
-        """Check if the trigger text is present using hybrid approach (OCR first, VLM fallback)."""
+        """Check if the trigger text is present using OCR-only approach.
+        
+        Both OCR and VLM verification modes use OCR for trigger detection.
+        VLM is only used for field verification, not trigger detection.
+        """
         trigger_config = self.advanced_settings.get("trigger", {})
         trigger_region = tuple(self.config["regions"]["trigger"])
         keywords = trigger_config.get("keywords", ["pre", "check", "rx"])
         
-        # First try OCR-based trigger detection
+        # Increment trigger check counter for smart logging
+        self.trigger_check_count += 1
+        
+        # Always use OCR-based trigger detection first (Tesseract preferred, EasyOCR fallback)
         ocr_trigger_detected, ocr_rx_number = self._check_trigger_with_ocr(screenshot, trigger_region, keywords, trigger_config)
         
-        # If OCR succeeded with good confidence, use it
-        if ocr_trigger_detected and ocr_rx_number:
-            logging.debug(f"Trigger detected via OCR: Rx#{ocr_rx_number}")
+        # If OCR succeeded, use it regardless of verification mode
+        if ocr_trigger_detected:
+            if ocr_rx_number:
+                logging.debug(f"Trigger detected via OCR: Rx#{ocr_rx_number}")
+            else:
+                logging.debug("Trigger detected via OCR (no Rx number)")
             return ocr_trigger_detected, ocr_rx_number
-        elif ocr_trigger_detected:
-            logging.debug("Trigger detected via OCR (no Rx number)")
-            return ocr_trigger_detected, ""
         
-        # If in VLM mode and OCR failed, try VLM trigger detection
+        # If in VLM mode and OCR failed completely, try the VLM mode OCR approach
+        # (This provides a secondary OCR attempt with potentially different settings)
         verification_mode = self.config.get("verification_mode", "ocr")
         if verification_mode == "vlm":
             vlm_trigger_detected, vlm_rx_number = self._check_trigger_with_vlm(trigger_region, keywords)
             if vlm_trigger_detected:
-                logging.info(f"Trigger detected via VLM fallback: Rx#{vlm_rx_number or 'UNKNOWN'}")
+                logging.debug(f"Trigger detected via VLM mode OCR: Rx#{vlm_rx_number or 'UNKNOWN'}")
                 return vlm_trigger_detected, vlm_rx_number
+            else:
+                # Smart logging: only log every 30 checks when no trigger found
+                if self.trigger_check_count % 30 == 0:
+                    logging.debug(f"VLM mode OCR monitoring - {self.trigger_check_count} checks completed, no triggers detected")
         
-        # No trigger detected
+        # No trigger detected by any OCR method
         return False, ""
     
     def _check_trigger_with_ocr(self, screenshot: Image.Image, trigger_region: tuple, keywords: list, trigger_config: dict) -> Tuple[bool, str]:
-        """Traditional OCR-based trigger detection"""
+        """Traditional OCR-based trigger detection.
+
+        IMPORTANT: Always attempt Tesseract first for trigger detection, regardless of the
+        globally configured OCR provider, to maximize speed and stability. If Tesseract is
+        unavailable, gracefully fall back to EasyOCR via the provider cache. This ensures
+        the sequence: Tesseract -> EasyOCR -> (only then) VLM fallback handled by caller.
+        """
         try:
-            trigger_text = self.ocr_provider.get_text_from_region(screenshot, trigger_region)
+            # Force Tesseract-first provider selection for trigger text
+            # If Tesseract is not available, get_cached_ocr_provider will smart-fallback to EasyOCR
+            from core.ocr_provider import get_cached_ocr_provider
+            trigger_ocr = get_cached_ocr_provider("tesseract", self.advanced_settings)
+
+            trigger_text = trigger_ocr.get_text_from_region(screenshot, trigger_region)
             
             sim_threshold = trigger_config.get("keyword_similarity_threshold", 90)
             min_matches = trigger_config.get("min_keyword_matches", 2)
@@ -321,34 +366,42 @@ class VerificationController:
             return False, ""
     
     def _check_trigger_with_vlm(self, trigger_region: tuple, keywords: list) -> Tuple[bool, str]:
-        """VLM-based trigger detection fallback"""
+        """OCR-only trigger detection for VLM mode (no VLM fallback)
+        
+        When in VLM mode, we still use OCR for trigger detection per user requirements.
+        VLM is only used for field verification, not trigger detection.
+        """
         try:
             # Load VLM configuration
             vlm_config = self._load_vlm_config()
             if not vlm_config:
-                logging.warning("VLM trigger fallback: No VLM configuration available")
-                return False, ""
+                logging.warning("VLM trigger: No VLM configuration available, using direct OCR")
+                # Take a fresh screenshot for OCR trigger detection
+                screenshot = pyautogui.screenshot()
+                return self._check_trigger_with_ocr(screenshot, trigger_region, keywords, self.advanced_settings.get("trigger", {}))
             
             # Import VLM verifier
             try:
                 from ai.vlm_verifier import VLM_Verifier
             except ImportError:
-                logging.warning("VLM trigger fallback: VLM Verifier module not available")
-                return False, ""
+                logging.warning("VLM trigger: VLM Verifier module not available, using direct OCR")
+                # Take a fresh screenshot for OCR trigger detection
+                screenshot = pyautogui.screenshot()
+                return self._check_trigger_with_ocr(screenshot, trigger_region, keywords, self.advanced_settings.get("trigger", {}))
             
-            # Create VLM verifier and detect trigger
+            # Create VLM verifier and use OCR trigger detection
             vlm_verifier = VLM_Verifier(vlm_config)
-            trigger_detected, rx_number = vlm_verifier.detect_trigger_with_vlm(trigger_region, keywords)
+            trigger_detected, rx_number = vlm_verifier.detect_trigger_with_ocr(trigger_region, keywords)
             
             if trigger_detected:
-                logging.info(f"VLM trigger fallback successful: trigger={trigger_detected}, rx={rx_number}")
+                logging.debug(f"VLM mode OCR trigger detection: trigger={trigger_detected}, rx={rx_number}")
             else:
-                logging.debug("VLM trigger fallback: No trigger detected")
+                logging.debug("VLM mode OCR trigger detection: No trigger detected")
             
             return trigger_detected, rx_number
             
         except Exception as e:
-            logging.error(f"VLM trigger detection failed: {e}")
+            logging.error(f"VLM mode OCR trigger detection failed: {e}")
             return False, ""
 
     async def _perform_ocr_on_all_fields(
@@ -497,13 +550,17 @@ class VerificationController:
                 
                 match = score >= threshold
                 
+                # Get coordinates for overlay from configuration
+                field_coords = self.config.get("regions", {}).get("fields", {}).get(field_name, {}).get("entered", [0, 0, 0, 0])
+                
                 results[field_name] = {
                     "entered": f"VLM_IMAGE_ANALYSIS",
                     "source": f"VLM_IMAGE_ANALYSIS", 
                     "score": score,
                     "match": match,
                     "threshold": threshold,
-                    "method": "vlm"
+                    "method": "vlm",
+                    "coords": field_coords  # Add coordinates for overlay
                 }
                 
                 status = "✅ MATCH" if match else "❌ NO MATCH"
@@ -540,7 +597,14 @@ class VerificationController:
 
     async def async_run(self):
         """Main asynchronous monitoring loop."""
-        logging.info("Starting to monitor for 'pre-check rx' text...")
+        verification_mode = self.config.get("verification_mode", "ocr")
+        trigger_keywords = self.advanced_settings.get("trigger", {}).get("keywords", ["pre", "check", "rx"])
+        
+        if verification_mode == "vlm":
+            logging.info(f"🤖 VLM monitoring active (OCR triggers) - Looking for triggers: {trigger_keywords}")
+        else:
+            logging.info(f"📖 OCR monitoring active - Looking for triggers: {trigger_keywords}")
+            
         consecutive_no_change = 0
         loop_count = 0
 

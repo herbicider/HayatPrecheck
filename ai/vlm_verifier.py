@@ -6,6 +6,7 @@ from PIL import Image, ImageEnhance
 import io
 import pyautogui
 from typing import Dict, Any, Tuple, Optional
+import math
 
 class VLM_Verifier:
     """Vision Language Model verifier for prescription comparison"""
@@ -45,12 +46,27 @@ class VLM_Verifier:
             if self.settings.get("auto_enhance", True):
                 screenshot = self._enhance_image(screenshot)
             
-            # Resize if needed
+            # Resize if needed - use multiples of 28 for VLM model compatibility
             max_width = self.settings.get("resize_max_width", 1024)
             max_height = self.settings.get("resize_max_height", 768)
             
             if screenshot.width > max_width or screenshot.height > max_height:
-                screenshot.thumbnail((max_width, max_height), Image.Lanczos)
+                # Calculate new size maintaining aspect ratio
+                ratio = min(max_width / screenshot.width, max_height / screenshot.height)
+                new_width = int(screenshot.width * ratio)
+                new_height = int(screenshot.height * ratio)
+                
+                # Round to nearest multiple of 28 for VLM model compatibility
+                new_width = ((new_width + 14) // 28) * 28
+                new_height = ((new_height + 14) // 28) * 28
+                
+                # Ensure minimum size
+                new_width = max(28, new_width)
+                new_height = max(28, new_height)
+                
+                # Use resize instead of thumbnail for more predictable results
+                screenshot = screenshot.resize((new_width, new_height))
+                self.logger.debug(f"Resized image from original to {new_width}x{new_height} (multiples of 28)")
             
             return screenshot
             
@@ -59,21 +75,47 @@ class VLM_Verifier:
             return None
 
     def _enhance_image(self, image: Image.Image) -> Image.Image:
-        """Apply image enhancements for better OCR/VLM performance"""
+        """Apply OCR-style image enhancements for better text recognition in VLM"""
         try:
             # Convert to RGB if needed
             if image.mode != 'RGB':
                 image = image.convert('RGB')
             
-            # Enhance contrast
-            enhancer = ImageEnhance.Contrast(image)
-            image = enhancer.enhance(1.2)
+            # Apply OCR-style preprocessing for better text recognition
+            enhance_mode = self.settings.get("enhance_mode", "ocr_style")  # "ocr_style" or "standard"
             
-            # Enhance sharpness
-            enhancer = ImageEnhance.Sharpness(image)
-            image = enhancer.enhance(1.1)
-            
-            return image
+            if enhance_mode == "ocr_style":
+                # OCR-style processing: grayscale + high contrast for text reading
+                
+                # 1. Convert to grayscale (like OCR does)
+                grayscale = image.convert('L')
+                
+                # 2. Enhance contrast more aggressively for text
+                enhancer = ImageEnhance.Contrast(grayscale)
+                enhanced = enhancer.enhance(1.5)  # Higher contrast than standard
+                
+                # 3. Optional: Apply sharpening for crisp text edges
+                if self.settings.get("apply_sharpening", True):
+                    enhancer = ImageEnhance.Sharpness(enhanced)
+                    enhanced = enhancer.enhance(1.3)
+                
+                # 4. Convert back to RGB for VLM (models expect RGB)
+                # Create a grayscale RGB image (all channels same)
+                enhanced_rgb = Image.merge('RGB', (enhanced, enhanced, enhanced))
+                
+                self.logger.debug("Applied OCR-style preprocessing: grayscale + high contrast")
+                return enhanced_rgb
+                
+            else:
+                # Standard color enhancement (original behavior)
+                enhancer = ImageEnhance.Contrast(image)
+                image = enhancer.enhance(1.2)
+                
+                enhancer = ImageEnhance.Sharpness(image)
+                image = enhancer.enhance(1.1)
+                
+                self.logger.debug("Applied standard color enhancement")
+                return image
             
         except Exception as e:
             self.logger.error(f"Error enhancing image: {e}")
@@ -86,16 +128,62 @@ class VLM_Verifier:
             image_format = self.settings.get("image_format", "PNG")
             quality = self.settings.get("image_quality", 95)
             
+            # Convert to RGB if needed (important for JPEG)
+            if image.mode in ('RGBA', 'LA', 'P') and image_format.upper() == "JPEG":
+                # Create white background for transparency
+                rgb_image = Image.new('RGB', image.size, (255, 255, 255))
+                if image.mode == 'P':
+                    image = image.convert('RGBA')
+                rgb_image.paste(image, mask=image.split()[-1] if image.mode in ('RGBA', 'LA') else None)
+                image = rgb_image
+            elif image.mode != 'RGB' and image_format.upper() == "JPEG":
+                image = image.convert('RGB')
+            
             if image_format.upper() == "JPEG":
-                image.save(buffer, format="JPEG", quality=quality)
+                image.save(buffer, format="JPEG", quality=quality, optimize=True)
             else:
-                image.save(buffer, format="PNG")
-                
-            return base64.b64encode(buffer.getvalue()).decode('utf-8')
+                image.save(buffer, format="PNG", optimize=True)
+            
+            encoded = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            
+            # Log image details for debugging
+            self.logger.debug(f"Encoded image: {image_format}, size={image.size}, "
+                            f"mode={image.mode}, data_size={len(encoded)} chars")
+            
+            return encoded
             
         except Exception as e:
             self.logger.error(f"Error encoding image to base64: {e}")
             return ""
+
+    def _round_to_28(self, w: int, h: int) -> Tuple[int, int]:
+        """Round dimensions to nearest multiples of 28 with a 28px minimum."""
+        w = max(28, ((w + 14) // 28) * 28)
+        h = max(28, ((h + 14) // 28) * 28)
+        return w, h
+
+    def _image_tokens(self, w: int, h: int) -> int:
+        """Approximate image token count for VLM as patch count."""
+        return math.ceil(w / 28) * math.ceil(h / 28)
+
+    def _resize_to_token_budget(self, img: Image.Image, max_tokens: int) -> Image.Image:
+        """Resize image (keeping aspect) so ceil(W/28)*ceil(H/28) <= max_tokens."""
+        w, h = img.width, img.height
+        tokens = self._image_tokens(w, h)
+        if tokens <= max_tokens:
+            # Still round to multiples of 28 for compatibility
+            new_w, new_h = self._round_to_28(w, h)
+            if (new_w, new_h) != (w, h):
+                return img.resize((new_w, new_h))
+            return img
+
+        # Solve for scale so (ceil((s*w)/28) * ceil((s*h)/28)) <= max_tokens
+        # Use continuous approximation and then round up in practice.
+        scale = math.sqrt(max_tokens / max(1, tokens))
+        new_w = max(28, int(w * scale))
+        new_h = max(28, int(h * scale))
+        new_w, new_h = self._round_to_28(new_w, new_h)
+        return img.resize((new_w, new_h))
 
     def verify_with_vlm(self) -> Dict[str, int]:
         """
@@ -125,9 +213,70 @@ class VLM_Verifier:
                 self.logger.error("VLM: Failed to encode images")
                 return {}
             
-            # Prepare the API request
-            system_prompt = self.config.get("system_prompt", "")
-            user_prompt = self.config.get("user_prompt", "Compare these prescription images.")
+            # Log payload sizes for debugging
+            total_payload_size = len(data_entry_b64) + len(source_b64)
+            self.logger.debug(f"VLM: Data entry image: {len(data_entry_b64)} chars")
+            self.logger.debug(f"VLM: Source image: {len(source_b64)} chars") 
+            self.logger.debug(f"VLM: Total image payload: {total_payload_size} chars")
+
+            # Token-budget-based resizing 
+            max_total_image_tokens = int(self.settings.get("max_image_tokens_total", 1024))
+            max_per_image_tokens = int(self.settings.get("max_image_tokens_per_image", max_total_image_tokens // 2))
+
+            # Compute current tokens
+            de_tokens = self._image_tokens(data_entry_img.width, data_entry_img.height)
+            src_tokens = self._image_tokens(source_img.width, source_img.height)
+            total_tokens = de_tokens + src_tokens
+            self.logger.debug(f"VLM: Image tokens - data_entry={de_tokens}, source={src_tokens}, total={total_tokens}")
+
+            resized = False
+            if de_tokens > max_per_image_tokens:
+                data_entry_img = self._resize_to_token_budget(data_entry_img, max_per_image_tokens)
+                data_entry_b64 = self.encode_image_to_base64(data_entry_img)
+                resized = True
+            if src_tokens > max_per_image_tokens:
+                source_img = self._resize_to_token_budget(source_img, max_per_image_tokens)
+                source_b64 = self.encode_image_to_base64(source_img)
+                resized = True
+
+            if resized:
+                # Recompute totals after per-image budget
+                de_tokens = self._image_tokens(data_entry_img.width, data_entry_img.height)
+                src_tokens = self._image_tokens(source_img.width, source_img.height)
+                total_tokens = de_tokens + src_tokens
+                self.logger.debug(f"VLM: After per-image resize tokens total={total_tokens}")
+
+            if total_tokens > max_total_image_tokens:
+                self.logger.warning(f"VLM: Token budget exceeded ({total_tokens}>{max_total_image_tokens}), resizing both")
+                # Share budget proportionally by area
+                de_budget = max(1, int(max_total_image_tokens * (data_entry_img.width * data_entry_img.height) /
+                                       max(1, (data_entry_img.width * data_entry_img.height + source_img.width * source_img.height))))
+                src_budget = max_total_image_tokens - de_budget
+
+                data_entry_img = self._resize_to_token_budget(data_entry_img, de_budget)
+                source_img = self._resize_to_token_budget(source_img, src_budget)
+                data_entry_b64 = self.encode_image_to_base64(data_entry_img)
+                source_b64 = self.encode_image_to_base64(source_img)
+
+                de_tokens = self._image_tokens(data_entry_img.width, data_entry_img.height)
+                src_tokens = self._image_tokens(source_img.width, source_img.height)
+                total_tokens = de_tokens + src_tokens
+                self.logger.info(f"VLM: After joint resize tokens total={total_tokens}")
+
+            # Prepare the API request - use system prompt from config
+            system_prompt = self.config.get("system_prompt", """You are a prescription verification assistant. Compare the entered prescription data (first image) with the source prescription (second image). Analyze the following fields if visible:
+patient_name
+prescriber_name
+drug_name
+direction_sig (directions for use)
+For each field, provide a confidence score from low to high based on how well the entered data matches the source of each section. Use drug equivalency knowledge and semantic analysis.  
+Response format (EXACTLY as shown, Only include fields that are provided. Use whole numbers only.):
+patient_name: [0-10 score]
+prescriber_name: [10-20 score] 
+drug_name: [20-30 score]
+direction_sig: [30-40 score]""")
+
+            user_prompt = self.config.get("user_prompt", "Please compare these prescription images. First image shows entered data, second shows the source prescription. Analyze all visible prescription fields and provide confidence scores.")
             
             messages = [
                 {
@@ -158,6 +307,9 @@ class VLM_Verifier:
             ]
             
             self.logger.debug("VLM: Sending request to vision model")
+            self.logger.debug(f"VLM: Model: {self.config.get('model_name')}")
+            self.logger.debug(f"VLM: Base URL: {self.config.get('base_url')}")
+            self.logger.debug(f"VLM: Image sizes - Data entry: {data_entry_img.size}, Source: {source_img.size}")
             
             # Make the API call
             chat_completion = self.client.chat.completions.create(
@@ -280,8 +432,8 @@ class VLM_Verifier:
                 "base_url": self.config.get("base_url")
             }
 
-    def detect_trigger_with_vlm(self, trigger_region: tuple, keywords: Optional[list] = None) -> tuple:
-        """Use VLM to detect trigger text and extract Rx number
+    def detect_trigger_with_ocr(self, trigger_region: tuple, keywords: Optional[list] = None) -> tuple:
+        """Use OCR (Tesseract/EasyOCR) to detect trigger text and extract Rx number.
         
         Args:
             trigger_region: (x1, y1, x2, y2) coordinates for trigger area
@@ -294,92 +446,137 @@ class VLM_Verifier:
             if keywords is None:
                 keywords = ["pre", "check", "rx"]
             
-            # Capture trigger region screenshot
+            # Validate trigger region
             x1, y1, x2, y2 = trigger_region
-            width = x2 - x1
-            height = y2 - y1
+            width, height = x2 - x1, y2 - y1
             
             if width <= 0 or height <= 0:
-                self.logger.error(f"Invalid trigger region dimensions")
+                self.logger.error(f"Invalid trigger region dimensions: {width}x{height}")
                 return False, ""
             
-            # Capture the screenshot
+            # Capture and enhance screenshot
             screenshot = pyautogui.screenshot(region=(x1, y1, width, height))
-            
-            # Enhance image for better VLM processing
             if self.settings.get("auto_enhance", True):
                 screenshot = self._enhance_image(screenshot)
             
-            # Convert to base64
-            image_b64 = self.encode_image_to_base64(screenshot)
+            # Get OCR text using available provider
+            trigger_text = self._get_ocr_text(screenshot)
+            if not trigger_text:
+                return False, ""
             
-            # Create trigger detection prompt
-            keywords_text = "', '".join(keywords)
-            trigger_prompt = f"""
-Analyze this image and determine if it contains pharmacy verification trigger text.
-
-Look for text patterns that indicate a prescription verification process, such as:
-- Words like: '{keywords_text}'
-- Pharmacy verification interface elements
-- Prescription checking prompts
-- Rx numbers or prescription identifiers
-
-Respond with EXACTLY this format:
-TRIGGER: YES/NO
-RX_NUMBER: [number if found, or NONE]
-
-Examples:
-- If you see "pre-check rx 123456": TRIGGER: YES, RX_NUMBER: 123456
-- If you see "check prescription": TRIGGER: YES, RX_NUMBER: NONE
-- If you see unrelated text: TRIGGER: NO, RX_NUMBER: NONE
-"""
-
-            # Call VLM
-            response = self.client.chat.completions.create(
-                model=self.config.get("model_name", ""),
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a pharmacy verification assistant. Analyze images to detect prescription verification triggers and extract Rx numbers."
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": trigger_prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/png;base64,{image_b64}"}
-                            }
-                        ]
-                    }
-                ],
-                max_tokens=100,
-                temperature=0.1
-            )
-            
-            # Parse response
-            content = response.choices[0].message.content.strip()
-            self.logger.info(f"VLM trigger response: {content}")
-            
-            # Extract trigger status and Rx number
-            trigger_detected = False
-            rx_number = ""
-            
-            for line in content.split('\n'):
-                line = line.strip()
-                if line.startswith('TRIGGER:'):
-                    trigger_detected = 'YES' in line.upper()
-                elif line.startswith('RX_NUMBER:'):
-                    rx_part = line.split(':', 1)[1].strip()
-                    if rx_part != 'NONE':
-                        rx_number = rx_part
-            
-            self.logger.info(f"VLM trigger detection: trigger={trigger_detected}, rx={rx_number}")
-            return trigger_detected, rx_number
+            # Analyze trigger text
+            return self._analyze_trigger_text(trigger_text, keywords)
             
         except Exception as e:
-            self.logger.error(f"VLM trigger detection failed: {e}")
+            self.logger.error(f"OCR trigger detection failed: {e}")
             return False, ""
+
+    def _get_ocr_text(self, screenshot: Image.Image) -> str:
+        """Get OCR text from screenshot using Tesseract or EasyOCR."""
+        try:
+            from core.ocr_provider import get_cached_ocr_provider
+            
+            # Try Tesseract first (faster)
+            try:
+                ocr_provider = get_cached_ocr_provider("tesseract", {})
+                text = ocr_provider.get_text_from_region(screenshot, (0, 0, screenshot.width, screenshot.height))
+                self.logger.debug(f"OCR text (Tesseract): '{text}'")
+                return text
+            except Exception as tesseract_error:
+                self.logger.debug(f"Tesseract failed, trying EasyOCR: {tesseract_error}")
+                
+                # Fallback to EasyOCR
+                ocr_provider = get_cached_ocr_provider("easyocr", {})
+                text = ocr_provider.get_text_from_region(screenshot, (0, 0, screenshot.width, screenshot.height))
+                self.logger.debug(f"OCR text (EasyOCR): '{text}'")
+                return text
+                
+        except Exception as e:
+            self.logger.error(f"All OCR providers failed: {e}")
+            return ""
+
+    def _analyze_trigger_text(self, trigger_text: str, keywords: list) -> tuple:
+        """Analyze OCR text for trigger keywords and extract Rx number."""
+        try:
+            import re
+            from rapidfuzz import fuzz
+            
+            text_lower = trigger_text.lower()
+            
+            # Check for full phrase match first
+            full_phrase = " ".join(keywords)
+            if fuzz.ratio(text_lower.strip(), full_phrase.lower()) >= 80:
+                rx_number = self._extract_rx_number_from_text(trigger_text)
+                self.logger.debug(f"Full phrase match found, Rx#{rx_number}")
+                return True, rx_number
+            
+            # Check individual keyword matches
+            text_words = re.split(r'[\s\-_.,;:|"\']+', text_lower)
+            text_words = [w for w in text_words if w]
+            
+            found_keywords = []
+            for keyword in keywords:
+                for word in text_words:
+                    if fuzz.ratio(word, keyword.lower()) >= 90:
+                        found_keywords.append(keyword)
+                        break
+            
+            # Need at least 2 keywords for trigger detection
+            trigger_detected = len(found_keywords) >= 2
+            
+            if trigger_detected:
+                rx_number = self._extract_rx_number_from_text(trigger_text)
+                self.logger.debug(f"Found {len(found_keywords)} keywords {found_keywords}, Rx#{rx_number}")
+                return True, rx_number
+            else:
+                self.logger.debug(f"Only found {len(found_keywords)} keywords {found_keywords}, need 2+")
+                return False, ""
+                
+        except Exception as e:
+            self.logger.error(f"Error analyzing trigger text: {e}")
+            return False, ""
+
+    def _extract_rx_number_from_text(self, text: str) -> str:
+        """Extract Rx number from OCR text using regex patterns."""
+        try:
+            import re
+            
+            patterns = [
+                r"rx\s*[#\-]\s*(\d+)",    # "rx # 123456" or "rx - 123456"
+                r"rx\s+(\d+)",            # "rx 123456"
+                r"(\d{4,})"               # Any 4+ digit number
+            ]
+            
+            text_lower = text.lower()
+            self.logger.debug(f"Extracting Rx from: '{text_lower}'")
+            
+            for i, pattern in enumerate(patterns):
+                match = re.search(pattern, text_lower)
+                if match and match.group(1).isdigit():
+                    rx_number = match.group(1)
+                    self.logger.debug(f"Pattern {i+1} matched: '{rx_number}'")
+                    return rx_number
+            
+            self.logger.debug("No valid Rx patterns matched")
+            return ""
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting Rx number: {e}")
+            return ""
+
+    def detect_trigger_with_vlm(self, trigger_region: tuple, keywords: Optional[list] = None) -> tuple:
+        """DEPRECATED: Use OCR for trigger detection instead of VLM.
+        
+        This method redirects to OCR-based trigger detection for consistency.
+        VLM should only be used for field verification, not trigger detection.
+        """
+        self.logger.debug("VLM trigger detection redirected to OCR method")
+        return self.detect_trigger_with_ocr(trigger_region, keywords)
+
+    # Backward compatibility alias
+    def detect_trigger_with_ocr_only(self, trigger_region: tuple, keywords: Optional[list] = None) -> tuple:
+        """Backward compatibility alias for detect_trigger_with_ocr."""
+        return self.detect_trigger_with_ocr(trigger_region, keywords)
 
     def update_regions(self, data_entry_coords: list, source_coords: list) -> bool:
         """Update the screenshot regions"""
