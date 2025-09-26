@@ -91,4 +91,7 @@ screenshots/
 # Local tesseract installation (if used)
 tesseract/
 
+#config files
+config_backups/
+
 

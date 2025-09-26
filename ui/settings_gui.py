@@ -406,13 +406,13 @@ class SettingsGUI:
                 self.field_combo.set("")
                 self.field_combo.config(state="disabled")
             # Show only entered/source radios
-            if self.radio_trigger:
+            if hasattr(self, 'radio_trigger') and self.radio_trigger:
                 self.radio_trigger.pack_forget()
-            if self.radio_rx_number:
+            if hasattr(self, 'radio_rx_number') and self.radio_rx_number:
                 self.radio_rx_number.pack_forget()
-            if self.radio_entered:
+            if hasattr(self, 'radio_entered') and self.radio_entered:
                 self.radio_entered.pack(anchor=tk.W)
-            if self.radio_source:
+            if hasattr(self, 'radio_source') and self.radio_source:
                 self.radio_source.pack(anchor=tk.W)
             # Default to 'entered' (maps to data_entry)
             self.region_var.set("entered")
@@ -422,6 +422,7 @@ class SettingsGUI:
             if self.verification_method_combo:
                 self.verification_method_combo.set('')
                 self.verification_method_combo.config(state='disabled')
+            self.update_status("VLM mode: Select Data Entry or Source region and drag on screenshot")
         else:
             # Enable field selection and restore radios via on_field_change
             if self.field_combo:
@@ -1192,9 +1193,16 @@ class SettingsGUI:
     
     def on_click(self, event):
         """Handle mouse click on canvas."""
-        if not self.current_field or not self.current_region_type:
-            messagebox.showwarning("Warning", "Please select a field and region type first!")
-            return
+        # In VLM mode, we only need region type, not field
+        if self.mode_var.get() == "vlm":
+            if not self.current_region_type:
+                messagebox.showwarning("Warning", "Please select a region type (Entered or Source) first!")
+                return
+        else:
+            # In OCR mode, we need both field and region type
+            if not self.current_field or not self.current_region_type:
+                messagebox.showwarning("Warning", "Please select a field and region type first!")
+                return
             
         # Don't start rectangle drawing if we're panning
         if self.is_panning:
@@ -1231,7 +1239,10 @@ class SettingsGUI:
             if y1 > y2:
                 y1, y2 = y2, y1
                 
-            self.current_rect = self.canvas.create_rectangle(x1, y1, x2, y2, outline="red", width=2)
+            # Use different color for VLM mode
+            color = "blue" if (self.mode_var.get() == "vlm" and self.current_region_type == "entered") else \
+                    "green" if (self.mode_var.get() == "vlm" and self.current_region_type == "source") else "red"
+            self.current_rect = self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=2)
     
     def on_release(self, event):
         """Handle mouse release on canvas."""
@@ -1345,6 +1356,10 @@ class SettingsGUI:
         if self.mode_var.get() == "vlm":
             # In VLM mode, field selection is not applicable.
             self.current_field = None
+            # Ensure we have a valid region type for VLM
+            if not self.current_region_type or self.current_region_type not in ["entered", "source"]:
+                self.region_var.set("entered")
+                self.current_region_type = "entered"
             self.update_coordinate_display()
             self.draw_all_rectangles()
             self.update_status("VLM mode: select Data Entry or Source and drag on screenshot")
@@ -1397,7 +1412,12 @@ class SettingsGUI:
         self.current_region_type = self.region_var.get()
         self.update_coordinate_display()
         self.draw_all_rectangles()
-        self.update_status(f"Selected region: {self.current_region_type}")
+        
+        if self.mode_var.get() == "vlm":
+            region_name = "Data Entry" if self.current_region_type == "entered" else "Source"
+            self.update_status(f"VLM mode - Selected region: {region_name}")
+        else:
+            self.update_status(f"Selected region: {self.current_region_type}")
 
     def on_verification_method_change(self, event=None):
         """Handle verification method selection change."""

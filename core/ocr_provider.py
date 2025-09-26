@@ -127,7 +127,7 @@ def get_cached_ocr_provider(provider_type: str, advanced_settings: Dict[str, Any
     cache_key = f"{provider_type}_{hash(str(sorted(advanced_settings.items())))}"
     
     if cache_key not in _ocr_provider_cache:
-        logging.info(f"Creating new {provider_type} OCR provider instance...")
+        logging.debug(f"Creating new {provider_type} OCR provider instance (PID: {os.getpid()})...")
         try:
             if provider_type == "easyocr":
                 _ocr_provider_cache[cache_key] = EasyOcrProvider(advanced_settings)
@@ -163,6 +163,16 @@ def get_cached_ocr_provider(provider_type: str, advanced_settings: Dict[str, Any
             logging.debug(f"Using cached {provider_type} OCR provider instance (usage count: {_cache_usage_count})")
     
     return _ocr_provider_cache[cache_key]
+
+def preload_ocr_provider(advanced_settings: Dict[str, Any]):
+    """Pre-warms the OCR provider to avoid delays on first use."""
+    provider_type = advanced_settings.get("ocr_provider", "auto")
+    logging.info(f"Pre-loading OCR provider: {provider_type}")
+    try:
+        get_cached_ocr_provider(provider_type, advanced_settings)
+        logging.info("OCR provider pre-loaded successfully.")
+    except Exception as e:
+        logging.error(f"Failed to pre-load OCR provider: {e}")
 
 def _preprocess_image_with_cv2(image: Image.Image, ocr_config: Dict[str, Any]) -> np.ndarray:
     """

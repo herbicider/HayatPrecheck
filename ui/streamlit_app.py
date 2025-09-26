@@ -46,6 +46,7 @@ class SimplePharmacyApp:
         try:
             from core.verification_controller import VerificationController
             from core.settings_manager import SettingsManager
+            from core.ocr_provider import preload_ocr_provider
             self.VerificationController = VerificationController
             self.SettingsManager = SettingsManager
         except ImportError as e:
@@ -58,6 +59,8 @@ class SimplePharmacyApp:
         self.settings_manager = self.SettingsManager(self.config_file)
         self.config = None
         self.load_config()
+        
+        # Note: OCR provider is preloaded by VerificationController, no need to preload here
         
         # Initialize session state
         if 'verification_running' not in st.session_state:
@@ -1303,6 +1306,8 @@ class SimplePharmacyApp:
             self.ai_config_page()
         elif page == "👁️ VLM Configuration":
             self.vlm_config_page()
+
+        st.sidebar.info("🚀 OCR engine is pre-loading in the background...")
 
 def main():
     """Main application entry point"""

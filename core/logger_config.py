@@ -70,17 +70,22 @@ def log_rx_summary(rx_number: str, results: Dict[str, Any]) -> None:
             status = 'YES' if result['match'] else 'NO'
             logging.info(f"=== {field_name.upper()} FIELD ===")
             
-            # Log OCR text details if available
-            if 'entered_raw' in result:
-                logging.info(f"  Raw entered text: '{result['entered_raw']}'")
-            if 'source_raw' in result:
-                logging.info(f"  Raw source text: '{result['source_raw']}'")
-            if 'entered_clean' in result:
-                logging.info(f"  Cleaned entered: '{result['entered_clean']}'")
-            if 'source_clean' in result:
-                logging.info(f"  Cleaned source: '{result['source_clean']}'")
-            if 'threshold' in result:
+            # Check if this is VLM mode (no OCR text available)
+            if result.get('method') == 'vlm':
+                logging.info(f"  VLM Analysis: Visual comparison of prescription images")
                 logging.info(f"  Score: {result['score']:.2f} | Threshold: {result['threshold']} | Match: {status}")
+            else:
+                # Log OCR text details if available
+                if 'entered_raw' in result:
+                    logging.info(f"  Raw entered text: '{result['entered_raw']}'")
+                if 'source_raw' in result:
+                    logging.info(f"  Raw source text: '{result['source_raw']}'")
+                if 'entered_clean' in result:
+                    logging.info(f"  Cleaned entered: '{result['entered_clean']}'")
+                if 'source_clean' in result:
+                    logging.info(f"  Cleaned source: '{result['source_clean']}'")
+                if 'threshold' in result:
+                    logging.info(f"  Score: {result['score']:.2f} | Threshold: {result['threshold']} | Match: {status}")
         
     except Exception as e:
         logging.error(f"Error logging Rx summary: {e}")

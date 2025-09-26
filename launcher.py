@@ -323,9 +323,10 @@ def main():
     print("   2. 🛠️  Launch Coordinate Setup GUI")
     print("   3. 🚀 Launch Both (recommended for first-time setup)")
     print("   4. 🔧 OCR Engine Setup (change OCR engine)")
-    print("   5. ❌ Exit")
+    print("   5. 🔍 VLM Debug: See what VLM reads from images")
+    print("   6. ❌ Exit")
     
-    choice = input("\nEnter your choice (1-5): ").strip()
+    choice = input("\nEnter your choice (1-6): ").strip()
     
     if choice == '1':
         print("\n🌐 Starting Streamlit web interface...")
@@ -364,6 +365,11 @@ def main():
         print("\n✅ OCR setup complete! You can now launch the main application.")
         
     elif choice == '5':
+        print("\n🔍 VLM Debug Tool - Text Extraction Analysis")
+        print("   This will show what text the VLM can actually read from prescription images.")
+        subprocess.run([sys.executable, 'tools/debug_vlm_text.py'])
+        
+    elif choice == '6':
         print("👋 Goodbye!")
         
     else:

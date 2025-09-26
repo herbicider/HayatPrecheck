@@ -39,21 +39,29 @@ def perform_ocr_task(
         # Each process gets its own OCR provider. The cache will be per-process.
         ocr_provider = get_cached_ocr_provider(ocr_provider_type, advanced_settings)
 
+        # Detect warm-up tasks by identifier
+        is_warmup = str(field_identifier).startswith("warmup_")
+
         # Simplified synchronous retry logic for the isolated process
         retry_config = advanced_settings.get("timing", {})
         retry_delay = retry_config.get("ocr_retry_delay_seconds", 0.5)
-        max_retries = int(retry_config.get("ocr_max_retries", 3))
+        max_retries = 1 if is_warmup else int(retry_config.get("ocr_max_retries", 3))
 
         for attempt in range(max_retries):
             text = ocr_provider.get_text_from_region(screenshot, region, field_identifier)
             if text and text.strip():
-                if attempt > 0:
+                if attempt > 0 and not is_warmup:
                     logging.info(
                         f"OCR (process) success for {field_identifier} on attempt {attempt + 1}"
                     )
                 return field_identifier, text
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
+
+        # For warm-up jobs, we don't treat empty OCR as an error — the goal is to load providers.
+        if is_warmup:
+            logging.debug(f"OCR warm-up completed for {field_identifier}")
+            return field_identifier, ""
 
         logging.error(
             f"OCR (process) failed for {field_identifier} after {max_retries} attempts."
@@ -81,7 +89,14 @@ class VerificationController:
         logging.info(f"Using OCR provider: {self.ocr_provider_type}")
         
         self.comparison_engine = ComparisonEngine(config)
-        self.process_pool = ProcessPoolExecutor()
+
+        # Configure process pool size (optional)
+        startup_cfg = self.config.get("advanced_settings", {}).get("startup", {})
+        ocr_worker_count = startup_cfg.get("ocr_worker_count")
+        if isinstance(ocr_worker_count, int) and ocr_worker_count > 0:
+            self.process_pool = ProcessPoolExecutor(max_workers=ocr_worker_count)
+        else:
+            self.process_pool = ProcessPoolExecutor()
 
         self.recently_triggered = False
         self.last_rx_number = None
@@ -95,6 +110,19 @@ class VerificationController:
         self.last_verified_signature = ""
         self.overlay_created_time = 0
         self.should_stop = False
+
+        # Optional OCR warm-up to avoid first-use latency
+        try:
+            warm_up_main = bool(startup_cfg.get("warm_up_ocr_on_start", False))
+            warm_up_workers = bool(startup_cfg.get("warm_up_ocr_workers", False))
+            workers_to_warm = int(startup_cfg.get("workers_to_warm", 2))
+
+            if warm_up_main:
+                self._warm_up_main_ocr()
+            if warm_up_workers:
+                self._warm_up_worker_processes(max(1, workers_to_warm))
+        except Exception as e:
+            logging.debug(f"OCR warm-up skipped due to error: {e}")
 
     def _get_screenshot_hash(self, screenshot: Image.Image) -> str:
         """Get a quick hash of the screenshot to detect changes."""
@@ -204,6 +232,52 @@ class VerificationController:
         
         if self.loop.is_running():
             self.loop.call_soon_threadsafe(_task)
+
+    def _warm_up_main_ocr(self):
+        """Preload OCR provider in the main process to avoid first-use latency."""
+        try:
+            from PIL import Image
+            import numpy as np
+            # Create a tiny dummy image and run a minimal OCR call
+            dummy = Image.fromarray(np.full((16, 16, 3), 255, dtype=np.uint8))
+            provider = get_cached_ocr_provider(self.ocr_provider_type, self.advanced_settings)
+            _ = provider.get_text_from_region(dummy, (0, 0, 8, 8), "warmup_main")
+            logging.info("OCR warm-up (main process) completed")
+        except Exception as e:
+            logging.debug(f"Main OCR warm-up failed: {e}")
+
+    def _warm_up_worker_processes(self, count: int):
+        """Submit no-op OCR tasks to spin up worker processes and load models."""
+        try:
+            from PIL import Image
+            import numpy as np
+            dummy_img = Image.fromarray(np.full((16, 16, 3), 255, dtype=np.uint8))
+            dummy_bytes = dummy_img.tobytes()
+            width, height = dummy_img.size
+
+            futures = []
+            for i in range(count):
+                fut = self.process_pool.submit(
+                    perform_ocr_task,
+                    self.ocr_provider_type,
+                    self.advanced_settings,
+                    dummy_bytes,
+                    width,
+                    height,
+                    (0, 0, 8, 8),
+                    f"warmup_worker_{i}",
+                )
+                futures.append(fut)
+
+            # Wait briefly for warm-up without blocking too long
+            for fut in futures:
+                try:
+                    fut.result(timeout=10)
+                except Exception:
+                    pass
+            logging.info(f"OCR warm-up ({len(futures)} worker(s)) completed")
+        except Exception as e:
+            logging.debug(f"Worker OCR warm-up failed: {e}")
 
     async def _handle_all_fields_matched(self):
         """Handle when all fields match, now with async sleep."""
@@ -563,8 +637,7 @@ class VerificationController:
                     "coords": field_coords  # Add coordinates for overlay
                 }
                 
-                status = "✅ MATCH" if match else "❌ NO MATCH"
-                logging.info(f"VLM: {field_name.replace('_', ' ').title()}: {score}% | Threshold: {threshold}% | {status}")
+                # Removed redundant logging here - will be logged by log_rx_summary
             
             logging.info(f"VLM: Verification completed for {len(results)} fields")
             return results
@@ -587,6 +660,34 @@ class VerificationController:
         except Exception as e:
             logging.error(f"VLM: Error loading configuration: {e}")
             return None
+
+    def debug_vlm_text_extraction(self) -> Dict[str, str]:
+        """
+        Debug method to see what text VLM can actually read from the images.
+        Useful for troubleshooting VLM verification issues.
+        """
+        try:
+            vlm_config = self._load_vlm_config()
+            if not vlm_config:
+                return {"error": "VLM configuration not found"}
+            
+            from ai.vlm_verifier import VLM_Verifier
+            vlm_verifier = VLM_Verifier(vlm_config)
+            
+            logging.info("🔍 VLM Debug: Extracting text from current screen regions...")
+            results = vlm_verifier.debug_vlm_with_text_extraction()
+            
+            if "error" in results:
+                logging.error(f"VLM Debug failed: {results['error']}")
+            else:
+                logging.info("✅ VLM Debug completed - check logs above for detailed text extraction")
+            
+            return results
+            
+        except Exception as e:
+            error_msg = f"VLM debug extraction failed: {e}"
+            logging.error(error_msg)
+            return {"error": error_msg}
 
     def stop(self):
         """Stop the monitoring loop gracefully."""

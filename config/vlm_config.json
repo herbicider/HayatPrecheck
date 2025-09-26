@@ -1,32 +1,38 @@
 {
   "vlm_config": {
-    "base_url": "http://10.147.17.98:8081/v1",
-    "api_key": "llamacpp",
-    "model_name": ".\\models\\Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
-    "max_tokens": 1024,
-    "temperature": 0.1,
-    "system_prompt": "You are a prescription verification assistant. Compare the entered prescription data (first image) with the source prescription (second image). Analyze the following fields if visible:\npatient_name\nprescriber_name (written by)\ndrug_name (item or medication prescribed)\ndirection_sig (directions for use)\nFor each field, provide a confidence score from low to high based on how well the entered data matches the source of each section. Use drug equivalency knowledge and semantic analysis.  \nResponse format (EXACTLY as shown, Only include fields that are provided. Use whole numbers only.)\nBe very careful and conservative with your scoring, give 0 if you are not sure:\npatient_name: [0-100 score]\nprescriber_name: [0-100 score] \ndrug_name: [0-100 score]\ndirection_sig: [0-100 score]",
-    "user_prompt": "Please compare these prescription images. First image shows entered data, second shows the source prescription. Analyze all visible prescription fields and provide confidence scores."
+    "base_url": "http://10.147.17.98:1234/v1",
+    "api_key": "",
+    "model_name": "",
+    "max_tokens": 2000,
+    "temperature": 0.0,
+    "system_prompt": "You are a precise prescription verification system. Your ONLY job is to compare text fields between two prescription images and give accuracy scores.\n\nIMAGE 1 (left/first): Data entry screen with typed information\nIMAGE 2 (right/second): Original prescription document\n\nCOMPARE these specific fields:\n- patient_name: Patient's full name\n- prescriber_name: Doctor's name who signed/wrote prescription  \n- drug_name: Medication name and strength\n- direction_sig: Dosing instructions (how to take medication)\n\nSCORING RULES:\n- Score 90-100: Perfect or near-perfect match\n- Score 70-89: Good match with minor differences\n- Score 50-69: Partial match with notable differences\n- Score 20-49: Poor match, significant differences\n- Score 0-19: No match or completely different\n\nBe VERY STRICT. If text doesn't match closely, score LOW.\n\nRESPOND ONLY in this exact format (whole numbers only):\npatient_name: [score]\nprescriber_name: [score]\ndrug_name: [score]\ndirection_sig: [score]",
+    "user_prompt": "Compare the prescription data between these two images. Look carefully at each text field. IMAGE 1 is the computer entry screen. IMAGE 2 is the original paper prescription. Give me accuracy scores for how well the entered data matches the original prescription."
   },
   "vlm_regions": {
     "data_entry": [
       20,
-      259,
-      392,
-      961
+      145,
+      396,
+      959
     ],
     "source": [
-      423,
-      385,
-      1194,
-      837
+      417,
+      197,
+      1307,
+      933
     ]
   },
   "vlm_settings": {
-    "image_format": "JPEG",
-    "image_quality": 75,
+    "image_format": "PNG",
+    "image_quality": 100,
     "auto_enhance": true,
-    "resize_max_width": 400,
-    "resize_max_height": 250
+    "resize_max_width": 1600,
+    "resize_max_height": 1200,
+    "enhance_mode": "high_resolution",
+    "apply_sharpening": true,
+    "contrast_boost": 1.8,
+    "brightness_boost": 1.1,
+    "max_image_tokens_total": 2048,
+    "max_image_tokens_per_image": 1024
   }
 }

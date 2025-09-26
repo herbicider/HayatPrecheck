@@ -1,10 +1,10 @@
 {
   "timing": {
-    "fast_polling_seconds": 0.5,
-    "max_static_sleep_seconds": 2.0,
+    "fast_polling_seconds": 0.2,
+    "max_static_sleep_seconds": 0.5,
     "same_prescription_wait_seconds": 3.0,
-    "trigger_content_load_delay_seconds": 0.5,
-    "verification_wait_seconds": 0.5,
+    "trigger_content_load_delay_seconds": 0.3,
+    "verification_wait_seconds": 0.3,
     "trigger_check_interval_seconds": 1.0,
     "ocr_retry_delay_seconds": 0.5,
     "ocr_max_retries": 2
@@ -17,30 +17,30 @@
   },
   "regions": {
     "trigger": [
-      479,
-      252,
-      526,
-      272
+      427,
+      164,
+      457,
+      193
     ],
     "rx_number": [
-      96,
-      172,
-      148,
-      188
+      94,
+      58,
+      143,
+      79
     ],
     "fields": {
       "patient_name": {
         "entered": [
           90,
-          260,
+          143,
           272,
-          279
+          168
         ],
         "source": [
-          521,
-          506,
-          980,
-          533
+          526,
+          404,
+          987,
+          430
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "patient",
@@ -49,15 +49,15 @@
       "prescriber_name": {
         "entered": [
           90,
-          334,
-          289,
-          353
+          221,
+          292,
+          240
         ],
         "source": [
-          521,
-          389,
-          946,
-          412
+          524,
+          280,
+          868,
+          310
         ],
         "score_fn": "token_sort_ratio",
         "threshold_key": "prescriber",
@@ -66,15 +66,15 @@
       "drug_name": {
         "entered": [
           90,
-          510,
-          308,
-          532
+          396,
+          309,
+          417
         ],
         "source": [
-          530,
-          648,
-          968,
-          667
+          533,
+          552,
+          990,
+          578
         ],
         "score_fn": "ratio",
         "threshold_key": "drug",
@@ -82,16 +82,16 @@
       },
       "direction_sig": {
         "entered": [
-          22,
-          805,
-          389,
-          847
+          24,
+          746,
+          390,
+          772
         ],
         "source": [
-          532,
-          725,
-          1155,
-          753
+          533,
+          631,
+          1183,
+          658
         ],
         "score_fn": "ratio",
         "threshold_key": "sig",
@@ -172,7 +172,7 @@
     "config_options": "--psm 7",
     "fallback_config": "--psm 8"
   },
-  "ocr_provider": "auto",
+  "ocr_provider": "easyocr",
   "easyocr": {
     "use_gpu": true,
     "confidence_threshold": 0.5
@@ -185,7 +185,7 @@
   },
   "ai_config": {
     "base_url": "http://192.168.100.187:8081",
-    "model_name": "llama-3.2-3b",
+    "model_name": "",
     "api_key": "",
     "system_prompt": "You are a pharmacist verifying prescription data entry accuracy and gives a matching score:\n1. Verify entered vs source text for accuracy and equivalency\n2. Account for OCR artifacts\n3. give equivalency score for drugs (brandname = generic)\n4. matching one of the source prescribers (if there are 2, separated by '/') is a match\n5. use semantic analysis for directions\n\nResponse format (EXACTLY as shown, Only include fields that are provided. Use whole numbers only.):\npatient_name: [0-100 score]\nprescriber_name: [0-100 score] \ndrug_name: [0-100 score]\ndirection_sig: [0-100 score]\n\n",
     "user_prompt": "Patient Name:\nEntered: {patient_name_entered}\nSource: {patient_name_source}\n\nPrescriber Name:\nEntered: {prescriber_name_entered}\nSource: {prescriber_name_source}\n\nDrug Name:\nEntered: {drug_name_entered}\nSource: {drug_name_source}\n\nDirections/Sig:\nEntered: {direction_sig_entered}\nSource: {direction_sig_source}"
@@ -193,11 +193,11 @@
   "advanced_settings": {
     "trigger": {
       "keywords": [
-        "Image"
+        "Scan"
       ],
       "keyword_similarity_threshold": 90,
       "min_keyword_matches": 1,
-      "lost_reset_delay_seconds": 5.0
+      "lost_reset_delay_seconds": 1.0
     },
     "overlay": {
       "min_display_seconds": 3.0
@@ -215,7 +215,13 @@
       ],
       "blur_radius": 0.5,
       "bucket_size": 8
+    },
+    "startup": {
+      "warm_up_ocr_on_start": true,
+      "warm_up_ocr_workers": true,
+      "workers_to_warm": 2,
+      "ocr_worker_count": 4
     }
   },
-  "verification_mode": "ocr"
+  "verification_mode": "vlm"
 }

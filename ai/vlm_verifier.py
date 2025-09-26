@@ -47,10 +47,13 @@ class VLM_Verifier:
                 screenshot = self._enhance_image(screenshot)
             
             # Resize if needed - use multiples of 28 for VLM model compatibility
-            max_width = self.settings.get("resize_max_width", 1024)
-            max_height = self.settings.get("resize_max_height", 768)
+            max_width = self.settings.get("resize_max_width", 2048)
+            max_height = self.settings.get("resize_max_height", 1536)
             
             if screenshot.width > max_width or screenshot.height > max_height:
+                # Store original size for logging
+                original_size = screenshot.size
+                
                 # Calculate new size maintaining aspect ratio
                 ratio = min(max_width / screenshot.width, max_height / screenshot.height)
                 new_width = int(screenshot.width * ratio)
@@ -64,9 +67,9 @@ class VLM_Verifier:
                 new_width = max(28, new_width)
                 new_height = max(28, new_height)
                 
-                # Use resize instead of thumbnail for more predictable results
-                screenshot = screenshot.resize((new_width, new_height))
-                self.logger.debug(f"Resized image from original to {new_width}x{new_height} (multiples of 28)")
+                # Use high-quality resampling for better text preservation
+                screenshot = screenshot.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                self.logger.debug(f"Resized image from {original_size} to {new_width}x{new_height} (multiples of 28) using LANCZOS resampling")
             
             return screenshot
             
@@ -105,6 +108,32 @@ class VLM_Verifier:
                 
                 self.logger.debug("Applied OCR-style preprocessing: grayscale + high contrast")
                 return enhanced_rgb
+                
+            elif enhance_mode == "high_resolution":
+                # High resolution mode: preserve color, enhanced clarity for VLM
+                
+                # 1. Optional brightness adjustment for better visibility
+                brightness_boost = self.settings.get("brightness_boost", 1.1)
+                if brightness_boost != 1.0:
+                    enhancer = ImageEnhance.Brightness(image)
+                    image = enhancer.enhance(brightness_boost)
+                
+                # 2. Enhanced contrast for better text definition
+                contrast_boost = self.settings.get("contrast_boost", 1.8)
+                enhancer = ImageEnhance.Contrast(image)
+                image = enhancer.enhance(contrast_boost)
+                
+                # 3. Aggressive sharpening for crisp text edges
+                if self.settings.get("apply_sharpening", True):
+                    enhancer = ImageEnhance.Sharpness(image)
+                    image = enhancer.enhance(2.0)  # More aggressive sharpening
+                
+                # 4. Optional color enhancement for better readability
+                enhancer = ImageEnhance.Color(image)
+                image = enhancer.enhance(1.2)  # Slight color boost
+                
+                self.logger.debug("Applied high-resolution mode: color preserved + enhanced clarity")
+                return image
                 
             else:
                 # Standard color enhancement (original behavior)
@@ -183,7 +212,7 @@ class VLM_Verifier:
         new_w = max(28, int(w * scale))
         new_h = max(28, int(h * scale))
         new_w, new_h = self._round_to_28(new_w, new_h)
-        return img.resize((new_w, new_h))
+        return img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
     def verify_with_vlm(self) -> Dict[str, int]:
         """
@@ -320,11 +349,20 @@ direction_sig: [30-40 score]""")
             )
             
             response_content = chat_completion.choices[0].message.content.strip()
-            self.logger.info(f"[VLM Response] {response_content}")
+            self.logger.info(f"[VLM Raw Response] {response_content}")
             
             # Parse the response
             scores = self._parse_vlm_response(response_content)
             self.logger.debug(f"VLM: Parsed scores: {scores}")
+            
+            # Log what VLM "read" for debugging purposes
+            self.logger.info("=== VLM VISUAL ANALYSIS DEBUG ===")
+            self.logger.info(f"VLM analyzed {len(scores)} fields from the prescription images")
+            for field, score in scores.items():
+                self.logger.info(f"  {field}: VLM confidence {score}% (visual comparison result)")
+            
+            # Extract any text the VLM mentioned it could read
+            self._log_vlm_text_extraction(response_content)
             
             return scores
             
@@ -383,6 +421,97 @@ direction_sig: [30-40 score]""")
                     continue
         
         return scores
+
+    def _log_vlm_text_extraction(self, response_content: str):
+        """Log any text that VLM mentions it could read for debugging purposes"""
+        try:
+            # Look for patterns where VLM describes what it sees
+            import re
+            
+            # Common phrases VLM might use to describe what it sees
+            text_patterns = [
+                r"(?:I can see|I see|shows?|contains?|displays?|reads?)\s*[\"']([^\"']+)[\"']",
+                r"(?:text|says?|shows?)\s*[\"']([^\"']+)[\"']",
+                r"[\"']([^\"']{3,})[\"']",  # Any quoted text 3+ chars
+            ]
+            
+            extracted_texts = []
+            for pattern in text_patterns:
+                matches = re.finditer(pattern, response_content, re.IGNORECASE)
+                for match in matches:
+                    text = match.group(1).strip()
+                    if len(text) > 2 and text not in extracted_texts:
+                        extracted_texts.append(text)
+            
+            if extracted_texts:
+                self.logger.info("=== VLM TEXT EXTRACTION DEBUG ===")
+                self.logger.info("Text that VLM could read from images:")
+                for i, text in enumerate(extracted_texts, 1):
+                    self.logger.info(f"  {i}. '{text}'")
+            else:
+                self.logger.debug("No specific text extractions found in VLM response")
+                
+        except Exception as e:
+            self.logger.error(f"Error extracting VLM text analysis: {e}")
+
+    def debug_vlm_with_text_extraction(self) -> Dict[str, str]:
+        """
+        Special debug method to ask VLM what text it can see in each image.
+        This is purely for debugging - not used in normal verification.
+        """
+        try:
+            # Capture screenshots
+            data_entry_img = self.capture_region_screenshot("data_entry")
+            source_img = self.capture_region_screenshot("source")
+            
+            if not data_entry_img or not source_img:
+                return {"error": "Failed to capture screenshots"}
+            
+            # Encode images
+            data_entry_b64 = self.encode_image_to_base64(data_entry_img)
+            source_b64 = self.encode_image_to_base64(source_img)
+            
+            debug_results = {}
+            
+            # Ask VLM what it can see in each image separately
+            for img_name, img_b64 in [("data_entry", data_entry_b64), ("source", source_b64)]:
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Please list all the text you can read in this prescription image. Be very specific about what text you see."
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{img_b64}"
+                                }
+                            }
+                        ]
+                    }
+                ]
+                
+                chat_completion = self.client.chat.completions.create(
+                    messages=messages,
+                    model=self.config.get("model_name", "llava-next"),
+                    max_tokens=1000,
+                    temperature=0.0
+                )
+                
+                response = chat_completion.choices[0].message.content.strip()
+                debug_results[img_name] = response
+                
+                self.logger.info(f"=== VLM DEBUG: {img_name.upper()} TEXT EXTRACTION ===")
+                self.logger.info(response)
+            
+            return debug_results
+            
+        except Exception as e:
+            error_msg = f"VLM debug text extraction failed: {e}"
+            self.logger.error(error_msg)
+            return {"error": error_msg}
 
     def test_vlm_connection(self) -> Dict[str, Any]:
         """Test the VLM connection and configuration"""
@@ -476,17 +605,20 @@ direction_sig: [30-40 score]""")
         try:
             from core.ocr_provider import get_cached_ocr_provider
             
-            # Try Tesseract first (faster)
+            # Use the same advanced settings from VLM config if available
+            advanced_settings = self.config.get("advanced_settings", {})
+            
+            # Try Tesseract first (faster) - reuse cached instance with proper settings
             try:
-                ocr_provider = get_cached_ocr_provider("tesseract", {})
+                ocr_provider = get_cached_ocr_provider("tesseract", advanced_settings)
                 text = ocr_provider.get_text_from_region(screenshot, (0, 0, screenshot.width, screenshot.height))
                 self.logger.debug(f"OCR text (Tesseract): '{text}'")
                 return text
             except Exception as tesseract_error:
                 self.logger.debug(f"Tesseract failed, trying EasyOCR: {tesseract_error}")
                 
-                # Fallback to EasyOCR
-                ocr_provider = get_cached_ocr_provider("easyocr", {})
+                # Fallback to EasyOCR with proper settings
+                ocr_provider = get_cached_ocr_provider("easyocr", advanced_settings)
                 text = ocr_provider.get_text_from_region(screenshot, (0, 0, screenshot.width, screenshot.height))
                 self.logger.debug(f"OCR text (EasyOCR): '{text}'")
                 return text

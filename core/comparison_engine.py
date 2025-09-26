@@ -1,4 +1,3 @@
-
 import re
 import string
 import json
@@ -27,15 +26,37 @@ class ComparisonEngine:
             logging.error(f"Failed to initialize AI Verifier: {e}")
 
     def _load_abbreviations(self) -> Dict[str, str]:
-        """Loads pharmaceutical abbreviations from an external JSON file."""
+        """Loads pharmaceutical abbreviations from config/abbreviations.json (preferred), with fallbacks."""
         try:
-            abbrev_file = os.path.join(os.path.dirname(__file__), "abbreviations.json")
-            if os.path.exists(abbrev_file):
-                with open(abbrev_file, 'r', encoding='utf-8') as f:
-                    loaded_abbreviations = json.load(f)
-                    return {k: v for k, v in loaded_abbreviations.items() if not k.startswith("//")}
-            else:
-                logging.warning(f"Abbreviations file not found: {abbrev_file}")
+            candidates = []
+
+            # 1) Explicit path from config (preferred override)
+            explicit = (
+                self.config.get("abbreviations_path")
+                or self.config.get("paths", {}).get("abbreviations")
+                or self.config.get("paths", {}).get("abbreviations_path")
+            )
+            if explicit:
+                candidates.append(explicit)
+
+            # 2) Default new location: <project_root>/config/abbreviations.json
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+            candidates.append(os.path.join(project_root, "config", "abbreviations.json"))
+
+            # 3) Legacy fallback: alongside this file (<project_root>/core/abbreviations.json)
+            candidates.append(os.path.join(os.path.dirname(__file__), "abbreviations.json"))
+
+            for abbrev_file in candidates:
+                if not abbrev_file:
+                    continue
+                if os.path.exists(abbrev_file):
+                    with open(abbrev_file, 'r', encoding='utf-8') as f:
+                        loaded_abbreviations = json.load(f)
+                        cleaned = {k: v for k, v in loaded_abbreviations.items() if not str(k).startswith("//")}
+                        logging.info(f"Loaded abbreviations from: {abbrev_file} ({len(cleaned)} entries)")
+                        return cleaned
+                else:
+                    logging.debug(f"Abbreviations file not found at: {abbrev_file}")
         except Exception as e:
             logging.error(f"Could not load abbreviations from file: {e}")
         
