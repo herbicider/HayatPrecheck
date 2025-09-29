@@ -1,12 +1,12 @@
 {
   "timing": {
-    "fast_polling_seconds": 0.2,
-    "max_static_sleep_seconds": 0.5,
+    "fast_polling_seconds": 0.5,
+    "max_static_sleep_seconds": 3.0,
     "same_prescription_wait_seconds": 3.0,
-    "trigger_content_load_delay_seconds": 0.3,
+    "trigger_content_load_delay_seconds": 1.0,
     "verification_wait_seconds": 0.3,
     "trigger_check_interval_seconds": 1.0,
-    "ocr_retry_delay_seconds": 0.5,
+    "ocr_retry_delay_seconds": 1.0,
     "ocr_max_retries": 2
   },
   "thresholds": {
@@ -17,10 +17,10 @@
   },
   "regions": {
     "trigger": [
-      427,
-      164,
-      457,
-      193
+      934,
+      168,
+      1012,
+      190
     ],
     "rx_number": [
       94,
@@ -172,7 +172,7 @@
     "config_options": "--psm 7",
     "fallback_config": "--psm 8"
   },
-  "ocr_provider": "easyocr",
+  "ocr_provider": "auto",
   "easyocr": {
     "use_gpu": true,
     "confidence_threshold": 0.5
@@ -193,7 +193,7 @@
   "advanced_settings": {
     "trigger": {
       "keywords": [
-        "Scan"
+        "Zoom Select"
       ],
       "keyword_similarity_threshold": 90,
       "min_keyword_matches": 1,

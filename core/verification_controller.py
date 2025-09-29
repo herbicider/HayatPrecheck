@@ -107,9 +107,12 @@ class VerificationController:
         self.last_trigger_time = 0
         self.last_seen_trigger_time = 0.0
         self.processed_rx_times: Dict[str, float] = {}
+        self.processed_rx_signatures: Dict[str, str] = {}  # Track Rx signatures to prevent duplicates
+        self.current_session_rx: Optional[str] = None  # Track the current session Rx to prevent reprocessing
         self.last_verified_signature = ""
         self.overlay_created_time = 0
         self.should_stop = False
+        self.skip_count_for_current_rx = 0  # Track skips for current Rx
 
         # Optional OCR warm-up to avoid first-use latency
         try:
@@ -300,6 +303,19 @@ class VerificationController:
         except Exception as e:
             logging.error(f"Error sending key press: {e}")
 
+    def _is_partial_rx_read(self, rx_number: str, reference_rx: str) -> bool:
+        """Check if rx_number is likely a partial read of reference_rx due to UI shifts."""
+        if not rx_number or not reference_rx:
+            return False
+        
+        # Check if it's shorter and ends the reference Rx
+        if (len(rx_number) < len(reference_rx) and 
+            reference_rx.endswith(rx_number) and 
+            len(rx_number) >= 3):  # At least 3 digits to be considered a partial match
+            return True
+            
+        return False
+    
     def _extract_rx_number(self, screenshot: Image.Image) -> str:
         """Extract the Rx number from the rx_number region with validation.
 
@@ -338,11 +354,31 @@ class VerificationController:
                         logging.debug(f"Rx extraction - Pattern {i+1} matched '{rx_number}' but contains non-digits, skipping")
                         continue
                     
-                    # Validate: if we have a previous Rx number, new one should have same digit count
-                    if self.last_rx_number and self.last_rx_number.isdigit():
-                        if len(rx_number) != len(self.last_rx_number):
-                            logging.warning(f"Rx extraction - Pattern {i+1} matched '{rx_number}' but length ({len(rx_number)}) differs from previous Rx '{self.last_rx_number}' length ({len(self.last_rx_number)}), likely UI shift issue")
+                    # Validate: reject partial Rx numbers that are likely UI shift artifacts
+                    # Check against current session Rx
+                    if self.current_session_rx and self.current_session_rx.isdigit():
+                        if self._is_partial_rx_read(rx_number, self.current_session_rx):
+                            logging.warning(f"Rx extraction - Rejecting '{rx_number}' as partial read of current session Rx '{self.current_session_rx}' (UI shift artifact)")
                             continue
+                        elif len(rx_number) != len(self.current_session_rx):
+                            logging.warning(f"Rx extraction - Rejecting '{rx_number}' - length ({len(rx_number)}) differs from current session Rx '{self.current_session_rx}' length ({len(self.current_session_rx)}) (UI shift artifact)")
+                            continue
+                    
+                    # Also check against recently processed Rx numbers
+                    is_partial_of_recent = False
+                    for recent_rx in self.processed_rx_times.keys():
+                        if recent_rx and self._is_partial_rx_read(rx_number, recent_rx):
+                            logging.warning(f"Rx extraction - Rejecting '{rx_number}' as partial read of recently processed Rx '{recent_rx}' (UI shift artifact)")
+                            is_partial_of_recent = True
+                            break
+                        elif recent_rx and len(rx_number) != len(recent_rx) and len(rx_number) < len(recent_rx):
+                            # Different length and shorter - likely partial read
+                            logging.warning(f"Rx extraction - Rejecting '{rx_number}' - suspiciously shorter than recent Rx '{recent_rx}' (likely UI shift artifact)")
+                            is_partial_of_recent = True
+                            break
+                    
+                    if is_partial_of_recent:
+                        continue
                     
                     logging.debug(f"Rx extraction ({ocr_method}) - Pattern {i+1} matched and validated: '{rx_number}'")
                     return rx_number
@@ -726,55 +762,106 @@ class VerificationController:
                 now = time.time()
                 if trigger_detected:
                     self.last_seen_trigger_time = now
+                    # Enhanced debug logging for trigger state tracking
+                    logging.debug(f"Trigger detected: Rx#{current_rx_number or 'UNKNOWN'}, recently_triggered={self.recently_triggered}, last_rx={self.last_rx_number}")
 
+                # Process trigger regardless of recently_triggered state
                 if trigger_detected:
                     cooldown = float(self.config.get("timing", {}).get("same_prescription_wait_seconds", 3.0))
                     last_time = self.processed_rx_times.get(current_rx_number, 0)
 
-                    # Check if this is a new Rx number (different from the last processed one)
-                    is_new_rx = current_rx_number and current_rx_number != self.last_rx_number
+                    # Robust Rx processing logic - never reprocess the same Rx in the same session
+                    should_process = False
+                    process_reason = ""
+                    skip_reason = ""
                     
-                    # Check if enough time has passed since we last processed this specific Rx number
-                    is_off_cooldown = (now - last_time) >= cooldown
+                    if not current_rx_number:
+                        skip_reason = "no Rx number extracted"
+                    elif current_rx_number == self.current_session_rx:
+                        # Same Rx as current session - never reprocess during continuous presence
+                        skip_reason = "same as current session prescription"
+                    elif (self.current_session_rx and 
+                          self._is_partial_rx_read(current_rx_number, self.current_session_rx)):
+                        # This looks like a partial read of current session Rx (UI shift artifact)
+                        skip_reason = f"partial read of current session Rx '{self.current_session_rx}' (UI shift artifact)"
+                    elif (self.current_session_rx and 
+                          len(current_rx_number) != len(self.current_session_rx) and 
+                          len(current_rx_number) < len(self.current_session_rx)):
+                        # Different length and shorter than current session - likely UI shift
+                        skip_reason = f"shorter than current session Rx '{self.current_session_rx}' (likely UI shift artifact)"
+                    elif any(self._is_partial_rx_read(current_rx_number, processed_rx) 
+                            for processed_rx in self.processed_rx_times.keys() 
+                            if processed_rx and len(processed_rx) > len(current_rx_number)):
+                        # This looks like a partial read of a recently processed Rx
+                        matching_rx = next((rx for rx in self.processed_rx_times.keys() 
+                                          if rx and self._is_partial_rx_read(current_rx_number, rx)), "unknown")
+                        skip_reason = f"partial read of recently processed Rx '{matching_rx}' (UI shift artifact)"
+                    elif current_rx_number in self.processed_rx_times:
+                        # This Rx was processed before - check cooldown regardless of session state
+                        time_since_processed = now - self.processed_rx_times[current_rx_number]
+                        if time_since_processed < cooldown:
+                            skip_reason = f"processed {time_since_processed:.1f}s ago (cooldown: {cooldown - time_since_processed:.1f}s remaining)"
+                        else:
+                            should_process = True
+                            process_reason = f"returning after {time_since_processed:.1f}s"
+                    elif self.current_session_rx is None:
+                        # First Rx we've seen in this session AND never processed before
+                        should_process = True
+                        process_reason = "first"
+                    elif current_rx_number != self.current_session_rx:
+                        # Different Rx from current session AND never processed before  
+                        should_process = True
+                        process_reason = "new"
                     
-                    # For the very first Rx (when last_rx_number is None), we should process it
-                    is_first_rx = self.last_rx_number is None and current_rx_number
-                    
-                    # Only process if it's a new Rx number OR it's the first Rx we've seen
-                    # Remove the recently_triggered check since we're now tracking by Rx number
-                    if is_new_rx or is_first_rx:
-                        logging.info(f"Processing Rx#{current_rx_number} ({'first' if is_first_rx else 'new'})")
+                    if should_process:
+                        logging.info(f"Processing Rx#{current_rx_number} ({process_reason}) - State change: recently_triggered={self.recently_triggered} -> True")
                         self.last_rx_number = current_rx_number
+                        self.current_session_rx = current_rx_number  # Track current session
                         self.recently_triggered = True
                         self.last_trigger_time = now
-                        if current_rx_number:
-                            self.processed_rx_times[current_rx_number] = now
+                        self.processed_rx_times[current_rx_number] = now
+                        self.skip_count_for_current_rx = 0  # Reset skip counter for new Rx
                         
                         delay = self.config.get("timing", {}).get("trigger_content_load_delay_seconds", 0.5)
                         await asyncio.sleep(delay)
                         
                         fresh_screenshot = pyautogui.screenshot()
                         await self._verify_all_fields(fresh_screenshot)
-                    elif current_rx_number == self.last_rx_number:
-                        # Same Rx number as before, skip processing but log it
-                        logging.debug(f"Skipping Rx#{current_rx_number} - already processed (same as current)")
-                    elif not is_off_cooldown:
-                        # Different Rx but still in cooldown period
-                        logging.debug(f"Skipping Rx#{current_rx_number} - cooldown period ({cooldown}s) not elapsed")
-                    elif not current_rx_number:
-                        # Trigger detected but no Rx number found (OCR issue)
-                        logging.debug(f"Trigger detected but no Rx number extracted - skipping")
                     else:
-                        # This shouldn't happen, but log it for debugging
-                        logging.debug(f"Trigger detected for Rx#{current_rx_number} but conditions not met for processing")
-
+                        # Skip processing with smart logging
+                        self.skip_count_for_current_rx += 1
+                        
+                        # Smart logging: show first skip immediately, then every 10th skip
+                        if self.skip_count_for_current_rx == 1 or self.skip_count_for_current_rx % 10 == 0:
+                            if current_rx_number:
+                                logging.info(f"SKIPPING: Rx#{current_rx_number} - {skip_reason} (skipped {self.skip_count_for_current_rx} times)")
+                            else:
+                                logging.debug(f"Trigger detected but {skip_reason} (skipped {self.skip_count_for_current_rx} times)")
+                        
+                # Handle reset when trigger is absent (only when no trigger is currently detected)
                 elif self.recently_triggered:
                     reset_delay = self.advanced_settings.get("trigger", {}).get("lost_reset_delay_seconds", 5.0)
-                    if (now - self.last_seen_trigger_time) > reset_delay:
-                        logging.info("Trigger text absent, resetting for next prescription")
+                    time_since_last_trigger = now - self.last_seen_trigger_time
+                    if time_since_last_trigger > reset_delay:
+                        logging.info(f"Trigger text absent for {time_since_last_trigger:.1f}s (>{reset_delay}s), resetting for next prescription - State change: recently_triggered=True -> False")
                         self.recently_triggered = False
                         self.last_rx_number = None
+                        self.current_session_rx = None  # Clear current session
+                        self.skip_count_for_current_rx = 0
+                        
+                        # More aggressive cleanup: remove entries older than 5 minutes
+                        cleanup_threshold = now - 300  # 5 minutes
+                        old_entries = [rx for rx, timestamp in self.processed_rx_times.items() if timestamp < cleanup_threshold]
+                        for rx in old_entries:
+                            del self.processed_rx_times[rx]
+                        if old_entries:
+                            logging.debug(f"Cleaned up {len(old_entries)} old Rx entries from memory")
+                        
                         self._close_overlay()
+                    else:
+                        # Smart logging: only log every 20 checks when waiting for reset
+                        if self.trigger_check_count % 20 == 0:
+                            logging.debug(f"Waiting for trigger reset: {time_since_last_trigger:.1f}s/{reset_delay}s elapsed")
                 
                 sleep_time = self.config["timing"]["fast_polling_seconds"] if consecutive_no_change < 10 else self.config["timing"]["max_static_sleep_seconds"]
                 await asyncio.sleep(sleep_time)
