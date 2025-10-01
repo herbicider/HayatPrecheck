@@ -5,34 +5,35 @@
     "model_name": "",
     "max_tokens": 2000,
     "temperature": 0.0,
-    "system_prompt": "You are a pharmacy prescription verification assistant. Follow these steps EXACTLY:\n\nSTEP 1: OCR AND READ BOTH IMAGES\nCarefully extract all visible text from both images. Pay special attention to:\n- IMAGE 1: Highlighted fields (yellow/blue backgrounds), form labels, entered data\n- IMAGE 2: Prescription document text, signatures, printed information\n\nSTEP 2: EXTRACT SPECIFIC FIELDS\nFrom the text you read, identify these 4 fields in each image:\n- PATIENT_NAME: Full patient name (may include DOB)\n- PRESCRIBER_NAME: Doctor/prescriber name (may include credentials/NPI)\n- DRUG_NAME: Medication name + strength + form (e.g., \"Hydroxyzine HCl 50 MG tablet\")\n- DIRECTION_SIG: Complete medication instructions (how to take it)\n\nSTEP 3: COMPARE EXTRACTED FIELDS\nFor each field, compare what you found in IMAGE 1 vs IMAGE 2:\n- Are they essentially the same information?\n- Account for: different formats, abbreviations, name order, medical equivalencies\n- Consider: spelling variations, OCR artifacts, handwriting differences\n\nSTEP 4: SCORE EACH COMPARISON (0-100)\n- 95-100: Perfect match or medically equivalent\n- 85-94: Very good match with minor format differences\n- 75-84: Good match with acceptable variations\n- 60-74: Questionable match, significant differences\n- 0-59: Poor match, major discrepancies, or missing data\n\nSTEP 5: RESPOND IN EXACT FORMAT\nFirst list what you extracted, then provide scores:\n[FIELD]: [IMAGE1_TEXT] vs [IMAGE2_TEXT]\n\npatient_name: [score]\nprescriber_name: [score]\ndrug_name: [score]\ndirection_sig: [score]",
-    "user_prompt": "Please follow the 5-step process to verify this prescription:\n\n1. OCR: Read all text carefully from both images\n2. EXTRACT: Find patient name, prescriber name, drug name, and directions in each image\n3. COMPARE: Match the extracted fields between images\n4. SCORE: Rate similarity (0-100) for each field\n5. RESPOND: List extractions and provide scores\n\nIMAGE 1 hints: Patient name often highlighted, prescriber in 'Written By', drug in 'Item', directions in blue section\nIMAGE 2 hints: Patient name after 'Patient Name:', prescriber after 'Issued By:', drug after 'Medication Prescribed:', directions in large text\n\nBe thorough in Step 1 (OCR) - read everything you can see before proceeding to extraction."
+    "system_prompt": "You are a pharmacy prescription verification assistant. Follow these steps EXACTLY:\n\nSTEP 1: OCR AND READ BOTH IMAGES\nCarefully extract all visible text from both images. Pay special attention to:\n- IMAGE 1: entered data\n- IMAGE 2: original prescription data\n\nSTEP 2: EXTRACT SPECIFIC FIELDS\nFrom the text you read, identify these fields in each image:\n- PATIENT_NAME: Full patient name , date of birth if applicable\n- PRESCRIBER_NAME: Doctor/prescriber name, NPI if applicable\n- DRUG_NAME: Medication name + strength + form \n- DIRECTION_SIG: instructions how to take the medication\n\nSTEP 3: COMPARE EXTRACTED FIELDS\nFor each field, compare what you found in IMAGE 1 vs IMAGE 2:\n- Are they essentially the same information?\n- Check: different formats, abbreviations, name normalization, medical equivalencies\n- Must: patient date of birth, drug strength (300mg vs 600mg) have to match\n- IGNORE: upper/lower case mismatch, prescriber title mismatch\n\nSTEP 4: SCORE EACH COMPARISON (0-100)\n- 100: Perfect match\n- 90-99: not fully match but medically equivalent\n- 60-74: Questionable match, needs human review\n- 1-10: Poor match, major discrepancies\n- 0: failed to extract essential or missing data from any of the image\n\nSTEP 5: RESPOND IN EXACT FORMAT\n\npatient_name: [score]\nprescriber_name: [score]\ndrug_name: [score]\ndirection_sig: [score]\n\nvery brief reasons to the scores",
+    "user_prompt": "Please follow the 5-step process to verify this prescription:\n\n1. OCR: Read all text carefully from both images\n2. EXTRACT: Find patient name , prescriber name, drug name, and directions in each image\n3. COMPARE: Match the extracted fields between images\n4. SCORE: score for each area, rate 0 if missing data\n5. RESPOND: List extractions and provide scores\n\nIMAGE 1 hints: Patient name often highlighted, prescriber in 'Written By', drug in 'Item', directions in bottom blue section (use the long one)\nIMAGE 2 hints: Patient name after 'Patient Name:', prescriber after 'Issued By:', drug after 'Medication Prescribed:', directions in large text\n\nBe thorough in Step 1 (OCR) - read everything you can see before proceeding to extraction."
   },
   "vlm_regions": {
     "data_entry": [
-      10,
-      10,
-      410,
-      820
+      15,
+      132,
+      394,
+      966
     ],
     "source": [
-      420,
-      10,
-      920,
-      720
+      408,
+      185,
+      1314,
+      940
     ]
   },
   "vlm_settings": {
     "image_format": "PNG",
-    "image_quality": 100,
-    "auto_enhance": true,
-    "resize_max_width": 1600,
-    "resize_max_height": 1200,
-    "enhance_mode": "pharmacy_optimized",
+    "image_quality": 95,
+    "auto_enhance": false,
+    "resize_max_width": 1920,
+    "resize_max_height": 1440,
+    "enhance_mode": "minimal",
     "apply_sharpening": true,
-    "contrast_boost": 2.2,
-    "brightness_boost": 1.15,
-    "max_image_tokens_total": 2048,
-    "max_image_tokens_per_image": 1024
+    "contrast_boost": 1.8,
+    "brightness_boost": 1.1,
+    "max_image_tokens_total": 3072,
+    "max_image_tokens_per_image": 1536,
+    "debug_save_images": true
   }
 }

@@ -45,11 +45,19 @@ class VLM_Verifier:
             
             # Apply enhancements if enabled
             if self.settings.get("auto_enhance", True):
+                # Save original for debugging if enabled
+                if self.settings.get("debug_save_images", False):
+                    self._save_debug_image(screenshot, f"{region_name}_original")
+                
                 screenshot = self._enhance_image(screenshot)
+                
+                # Save processed version for debugging
+                if self.settings.get("debug_save_images", False):
+                    self._save_debug_image(screenshot, f"{region_name}_processed")
             
             # Resize if needed - use multiples of 28 for VLM model compatibility
-            max_width = self.settings.get("resize_max_width", 2048)
-            max_height = self.settings.get("resize_max_height", 1536)
+            max_width = self.settings.get("resize_max_width", 1920)
+            max_height = self.settings.get("resize_max_height", 1440)
             
             if screenshot.width > max_width or screenshot.height > max_height:
                 # Store original size for logging
@@ -78,6 +86,26 @@ class VLM_Verifier:
             self.logger.error(f"Error capturing screenshot for {region_name}: {e}")
             return None
 
+    def _save_debug_image(self, image: Image.Image, prefix: str):
+        """Save debug images to help troubleshoot preprocessing"""
+        try:
+            import os
+            from datetime import datetime
+            
+            debug_dir = "vlm_debug_images"
+            if not os.path.exists(debug_dir):
+                os.makedirs(debug_dir)
+            
+            timestamp = datetime.now().strftime("%H%M%S")
+            filename = f"{prefix}_{timestamp}.png"
+            filepath = os.path.join(debug_dir, filename)
+            
+            image.save(filepath, "PNG")
+            self.logger.debug(f"Saved debug image: {filepath}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to save debug image: {e}")
+
     def _enhance_image(self, image: Image.Image) -> Image.Image:
         """Apply pharmacy-specific image enhancements for better VLM text recognition"""
         try:
@@ -102,37 +130,82 @@ class VLM_Verifier:
                     (image_array[:, :, 2] < 150)    # Lower blue
                 )
                 
-                # Detect blue highlighting
-                # Blue pixels: low R+G, high B
-                blue_mask = (
-                    (image_array[:, :, 0] < 150) &  # Low red
-                    (image_array[:, :, 1] < 150) &  # Low green
-                    (image_array[:, :, 2] > 180)    # High blue
+                # Detect blue highlighting - improved detection for pharmacy software
+                # Multiple blue detection strategies for better coverage
+                
+                # Strategy 1: Traditional blue (low R+G, high B)
+                blue_mask_1 = (
+                    (image_array[:, :, 0] < 160) &  # Increased red threshold
+                    (image_array[:, :, 1] < 160) &  # Increased green threshold  
+                    (image_array[:, :, 2] > 150)    # Lowered blue threshold for lighter blues
                 )
                 
-                # Convert highlighting to white background for better text contrast
+                # Strategy 2: Light blue highlighting (common in Windows apps)
+                # Look for pixels where blue channel significantly exceeds red+green
+                blue_dominance = image_array[:, :, 2] > (image_array[:, :, 0] + image_array[:, :, 1]) * 0.8
+                blue_mask_2 = blue_dominance & (image_array[:, :, 2] > 120)
+                
+                # Strategy 3: HSV-based blue detection for better color space handling
+                # Convert small regions to HSV for more accurate blue detection
+                try:
+                    from colorsys import rgb_to_hsv
+                    # Vectorized HSV conversion for blue hue detection (180-260 degrees)
+                    normalized_rgb = image_array.astype(float) / 255.0
+                    # Simple blue hue check: blue dominant and not grayscale
+                    is_colorful = (np.max(image_array, axis=2) - np.min(image_array, axis=2)) > 30
+                    blue_hue_mask = (image_array[:, :, 2] > image_array[:, :, 0]) & \
+                                   (image_array[:, :, 2] > image_array[:, :, 1]) & \
+                                   is_colorful & (image_array[:, :, 2] > 100)
+                except:
+                    blue_hue_mask = np.zeros_like(blue_mask_1)
+                
+                # Combine all blue detection strategies
+                blue_mask = blue_mask_1 | blue_mask_2 | blue_hue_mask
+                
+                # Smart highlighting removal with text preservation
+                # Instead of pure white, use a light background that preserves text contrast
+                
                 if np.any(yellow_mask):
-                    image_array[yellow_mask] = [255, 255, 255]  # White
-                    self.logger.debug("Converted yellow highlighting to white background")
+                    # For yellow highlighting, use very light yellow-white to preserve text readability
+                    image_array[yellow_mask] = [252, 252, 240]  # Very light cream
+                    yellow_count = np.sum(yellow_mask)
+                    self.logger.debug(f"Converted {yellow_count} yellow highlighted pixels to light background")
                     
                 if np.any(blue_mask):
-                    image_array[blue_mask] = [255, 255, 255]  # White
-                    self.logger.debug("Converted blue highlighting to white background")
+                    # For blue highlighting, detect if text is likely dark or light
+                    blue_pixels = image_array[blue_mask]
+                    
+                    # Check if there are dark pixels within blue regions (likely text)
+                    dark_text_in_blue = np.any((blue_pixels[:, 0] < 100) & 
+                                              (blue_pixels[:, 1] < 100) & 
+                                              (blue_pixels[:, 2] < 150))
+                    
+                    if dark_text_in_blue:
+                        # Keep some blue tint but make it very light for contrast
+                        image_array[blue_mask] = [240, 248, 255]  # Alice blue (very light)
+                        self.logger.debug("Converted blue highlighting to light blue background (dark text detected)")
+                    else:
+                        # No dark text detected, safe to use white
+                        image_array[blue_mask] = [255, 255, 255]  # White
+                        self.logger.debug("Converted blue highlighting to white background (no dark text)")
+                    
+                    blue_count = np.sum(blue_mask)
+                    self.logger.debug(f"Processed {blue_count} blue highlighted pixels")
                 
                 image = Image.fromarray(image_array)
                 
-                # 2. Enhance text contrast
-                contrast_boost = self.settings.get("contrast_boost", 2.2)  # Higher for pharmacy text
+                # 2. Moderate text contrast enhancement for readability
+                contrast_boost = self.settings.get("contrast_boost", 1.8)  # More conservative
                 enhancer = ImageEnhance.Contrast(image)
                 image = enhancer.enhance(contrast_boost)
                 
-                # 3. Aggressive sharpening for small prescription text
+                # 3. Gentle sharpening that preserves text quality
                 if self.settings.get("apply_sharpening", True):
                     enhancer = ImageEnhance.Sharpness(image)
-                    image = enhancer.enhance(2.5)  # Very aggressive for small text
+                    image = enhancer.enhance(1.5)  # Much gentler sharpening
                 
-                # 4. Slight brightness boost for visibility
-                brightness_boost = self.settings.get("brightness_boost", 1.15)
+                # 4. Minimal brightness adjustment
+                brightness_boost = self.settings.get("brightness_boost", 1.1)
                 if brightness_boost != 1.0:
                     enhancer = ImageEnhance.Brightness(image)
                     image = enhancer.enhance(brightness_boost)
@@ -186,6 +259,99 @@ class VLM_Verifier:
                 image = enhancer.enhance(1.2)  # Slight color boost
                 
                 self.logger.debug("Applied high-resolution mode: color preserved + enhanced clarity")
+                return image
+                
+            elif enhance_mode == "rtx_optimized":
+                # RTX 5080 optimized mode: maximum quality processing for high-end GPU
+                
+                # 1. Apply highlighting removal first (same as pharmacy_optimized)
+                image_array = np.array(image)
+                
+                # Enhanced blue detection for RTX processing
+                blue_mask_1 = (
+                    (image_array[:, :, 0] < 160) & 
+                    (image_array[:, :, 1] < 160) &  
+                    (image_array[:, :, 2] > 150)
+                )
+                
+                blue_dominance = image_array[:, :, 2] > (image_array[:, :, 0] + image_array[:, :, 1]) * 0.8
+                blue_mask_2 = blue_dominance & (image_array[:, :, 2] > 120)
+                
+                is_colorful = (np.max(image_array, axis=2) - np.min(image_array, axis=2)) > 30
+                blue_hue_mask = (image_array[:, :, 2] > image_array[:, :, 0]) & \
+                               (image_array[:, :, 2] > image_array[:, :, 1]) & \
+                               is_colorful & (image_array[:, :, 2] > 100)
+                
+                blue_mask = blue_mask_1 | blue_mask_2 | blue_hue_mask
+                
+                # Yellow highlighting
+                yellow_mask = (
+                    (image_array[:, :, 0] > 200) & 
+                    (image_array[:, :, 1] > 200) & 
+                    (image_array[:, :, 2] < 150)
+                )
+                
+                # Smart highlighting removal
+                if np.any(yellow_mask):
+                    image_array[yellow_mask] = [252, 252, 240]
+                if np.any(blue_mask):
+                    blue_pixels = image_array[blue_mask]
+                    dark_text_in_blue = np.any((blue_pixels[:, 0] < 100) & 
+                                              (blue_pixels[:, 1] < 100) & 
+                                              (blue_pixels[:, 2] < 150))
+                    if dark_text_in_blue:
+                        image_array[blue_mask] = [240, 248, 255]
+                    else:
+                        image_array[blue_mask] = [255, 255, 255]
+                
+                image = Image.fromarray(image_array)
+                
+                # 2. RTX-level contrast enhancement (higher than standard)
+                contrast_boost = self.settings.get("contrast_boost", 2.5)  # Higher for RTX
+                enhancer = ImageEnhance.Contrast(image)
+                image = enhancer.enhance(contrast_boost)
+                
+                # 3. RTX-level sharpening (very aggressive for fine text)
+                if self.settings.get("apply_sharpening", True):
+                    enhancer = ImageEnhance.Sharpness(image)
+                    image = enhancer.enhance(3.0)  # Very aggressive for RTX processing
+                
+                # 4. Fine brightness control for RTX displays
+                brightness_boost = self.settings.get("brightness_boost", 1.2)
+                enhancer = ImageEnhance.Brightness(image)
+                image = enhancer.enhance(brightness_boost)
+                
+                # 5. Color saturation for better VLM field recognition
+                enhancer = ImageEnhance.Color(image)
+                image = enhancer.enhance(1.3)
+                
+                self.logger.debug("Applied RTX-optimized mode: maximum quality + highlighting removal")
+                return image
+                
+            elif enhance_mode == "minimal":
+                # Minimal processing - just basic highlighting removal
+                
+                image_array = np.array(image)
+                
+                # Only basic blue highlighting detection (most conservative)
+                blue_mask = (
+                    (image_array[:, :, 0] < 140) &  # Very restrictive
+                    (image_array[:, :, 1] < 140) &  
+                    (image_array[:, :, 2] > 170)    # Only strong blues
+                )
+                
+                # Convert blue highlights to very light background
+                if np.any(blue_mask):
+                    image_array[blue_mask] = [245, 250, 255]  # Very light blue-white
+                    self.logger.debug(f"Minimal: Converted {np.sum(blue_mask)} blue pixels")
+                
+                image = Image.fromarray(image_array)
+                
+                # Very gentle contrast - barely noticeable
+                enhancer = ImageEnhance.Contrast(image)
+                image = enhancer.enhance(1.1)  # Minimal contrast boost
+                
+                self.logger.debug("Applied minimal enhancement - preserves original quality")
                 return image
                 
             else:
@@ -301,8 +467,8 @@ class VLM_Verifier:
             self.logger.debug(f"VLM: Source image: {len(source_b64)} chars") 
             self.logger.debug(f"VLM: Total image payload: {total_payload_size} chars")
 
-            # Token-budget-based resizing 
-            max_total_image_tokens = int(self.settings.get("max_image_tokens_total", 1024))
+            # Token-budget-based resizing
+            max_total_image_tokens = int(self.settings.get("max_image_tokens_total", 3072))
             max_per_image_tokens = int(self.settings.get("max_image_tokens_per_image", max_total_image_tokens // 2))
 
             # Compute current tokens
