@@ -7,6 +7,7 @@ import io
 import pyautogui
 from typing import Dict, Any, Tuple, Optional
 import math
+import numpy as np
 
 class VLM_Verifier:
     """Vision Language Model verifier for prescription comparison"""
@@ -78,16 +79,68 @@ class VLM_Verifier:
             return None
 
     def _enhance_image(self, image: Image.Image) -> Image.Image:
-        """Apply OCR-style image enhancements for better text recognition in VLM"""
+        """Apply pharmacy-specific image enhancements for better VLM text recognition"""
         try:
             # Convert to RGB if needed
             if image.mode != 'RGB':
                 image = image.convert('RGB')
             
-            # Apply OCR-style preprocessing for better text recognition
-            enhance_mode = self.settings.get("enhance_mode", "ocr_style")  # "ocr_style" or "standard"
+            # Apply pharmacy-specific preprocessing
+            enhance_mode = self.settings.get("enhance_mode", "pharmacy_optimized")
             
-            if enhance_mode == "ocr_style":
+            if enhance_mode == "pharmacy_optimized":
+                # Pharmacy-specific processing: handles highlighted text and prescription formats
+                
+                # 1. Normalize highlighting (yellow/blue backgrounds to white)
+                image_array = np.array(image)
+                
+                # Detect yellow highlighting (common in pharmacy software)
+                # Yellow pixels: high R+G, low B
+                yellow_mask = (
+                    (image_array[:, :, 0] > 200) &  # High red
+                    (image_array[:, :, 1] > 200) &  # High green
+                    (image_array[:, :, 2] < 150)    # Lower blue
+                )
+                
+                # Detect blue highlighting
+                # Blue pixels: low R+G, high B
+                blue_mask = (
+                    (image_array[:, :, 0] < 150) &  # Low red
+                    (image_array[:, :, 1] < 150) &  # Low green
+                    (image_array[:, :, 2] > 180)    # High blue
+                )
+                
+                # Convert highlighting to white background for better text contrast
+                if np.any(yellow_mask):
+                    image_array[yellow_mask] = [255, 255, 255]  # White
+                    self.logger.debug("Converted yellow highlighting to white background")
+                    
+                if np.any(blue_mask):
+                    image_array[blue_mask] = [255, 255, 255]  # White
+                    self.logger.debug("Converted blue highlighting to white background")
+                
+                image = Image.fromarray(image_array)
+                
+                # 2. Enhance text contrast
+                contrast_boost = self.settings.get("contrast_boost", 2.2)  # Higher for pharmacy text
+                enhancer = ImageEnhance.Contrast(image)
+                image = enhancer.enhance(contrast_boost)
+                
+                # 3. Aggressive sharpening for small prescription text
+                if self.settings.get("apply_sharpening", True):
+                    enhancer = ImageEnhance.Sharpness(image)
+                    image = enhancer.enhance(2.5)  # Very aggressive for small text
+                
+                # 4. Slight brightness boost for visibility
+                brightness_boost = self.settings.get("brightness_boost", 1.15)
+                if brightness_boost != 1.0:
+                    enhancer = ImageEnhance.Brightness(image)
+                    image = enhancer.enhance(brightness_boost)
+                
+                self.logger.debug("Applied pharmacy-optimized preprocessing: highlighting normalized + text enhanced")
+                return image
+                
+            elif enhance_mode == "ocr_style":
                 # OCR-style processing: grayscale + high contrast for text reading
                 
                 # 1. Convert to grayscale (like OCR does)
@@ -378,23 +431,48 @@ direction_sig: [30-40 score]""")
     def _parse_vlm_response(self, response_content: str) -> Dict[str, int]:
         """
         Parse VLM response format like:
+        [FIELD]: [IMAGE1_TEXT] vs [IMAGE2_TEXT]
         patient_name: 85
         prescriber_name: 90
         drug_name: 75
         direction_sig: 30
+        
+        Only extract numeric scores, ignore comparison text (but log it for debugging)
         """
         scores = {}
         lines = response_content.split('\n')
+        
+        # First log all comparison extractions for debugging
+        self.logger.info("=== VLM FIELD EXTRACTIONS (DEBUG) ===")
+        for line in lines:
+            line = line.strip()
+            if ':' in line and (' vs ' in line or 'vs' in line):
+                self.logger.info(f"  {line}")
         
         for line in lines:
             line = line.strip()
             if ':' in line:
                 try:
-                    field, score_str = line.split(':', 1)
+                    field, value_str = line.split(':', 1)
                     field = field.strip().lower()
+                    value_str = value_str.strip()
                     
-                    # Extract numeric score
-                    score = int(''.join(filter(str.isdigit, score_str.strip())))
+                    # Skip lines that are comparison extractions (contain 'vs')
+                    if ' vs ' in value_str.lower() or value_str.lower().startswith('vs '):
+                        continue
+                    
+                    # Extract numeric score - look for standalone numbers only
+                    import re
+                    score_match = re.search(r'\b(\d{1,3})\b', value_str)
+                    if not score_match:
+                        continue
+                    
+                    score = int(score_match.group(1))
+                    
+                    # Validate score range (0-100)
+                    if score < 0 or score > 100:
+                        self.logger.warning(f"VLM: Score {score} out of range (0-100) for field '{field}'")
+                        continue
                     
                     # Map field names to expected keys
                     field_mapping = {
@@ -413,12 +491,18 @@ direction_sig: [30-40 score]""")
                     }
                     
                     mapped_field = field_mapping.get(field, field)
-                    if mapped_field:
-                        scores[mapped_field] = max(0, min(100, score))  # Clamp to 0-100
+                    if mapped_field in ['patient_name', 'prescriber_name', 'drug_name', 'direction_sig']:
+                        scores[mapped_field] = score
+                        self.logger.debug(f"VLM: Parsed {mapped_field}: {score}")
                     
                 except (ValueError, IndexError) as e:
-                    self.logger.warning(f"VLM: Could not parse line '{line}': {e}")
+                    self.logger.debug(f"VLM: Could not parse line '{line}': {e}")
                     continue
+        
+        # Log final parsed scores
+        self.logger.info("=== VLM FINAL SCORES ===")
+        for field, score in scores.items():
+            self.logger.info(f"  {field}: {score}%")
         
         return scores
 

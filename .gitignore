@@ -94,4 +94,5 @@ tesseract/
 #config files
 config_backups/
 
+tools/
 

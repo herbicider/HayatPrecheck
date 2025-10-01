@@ -10,8 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 def ai_config_page(app_config):
     st.header("🧠 AI Configuration")
 
-    # Load existing AI settings from the main config
-    ai_config = app_config.get("ai_config", {})
+    # Load existing AI settings from the main config (support both old and new structure)
+    ai_config = app_config.get("ai_config", app_config.get("llm_config", {}))
 
     # OpenAI compatible settings
     st.subheader("OpenAI Compatible API Settings")

@@ -5,21 +5,21 @@
     "model_name": "",
     "max_tokens": 2000,
     "temperature": 0.0,
-    "system_prompt": "You are a precise prescription verification system. Your ONLY job is to compare text fields between two prescription images and give accuracy scores.\n\nIMAGE 1 (left/first): Data entry screen with typed information\nIMAGE 2 (right/second): Original prescription document\n\nCOMPARE these specific fields:\n- patient_name: Patient's full name\n- prescriber_name: Doctor's name who signed/wrote prescription  \n- drug_name: Medication name and strength\n- direction_sig: Dosing instructions (how to take medication)\n\nSCORING RULES:\n- Score 90-100: Perfect or near-perfect match\n- Score 70-89: Good match with minor differences\n- Score 50-69: Partial match with notable differences\n- Score 20-49: Poor match, significant differences\n- Score 0-19: No match or completely different\n\nBe VERY STRICT. If text doesn't match closely, score LOW.\n\nRESPOND ONLY in this exact format (whole numbers only):\npatient_name: [score]\nprescriber_name: [score]\ndrug_name: [score]\ndirection_sig: [score]",
-    "user_prompt": "Compare the prescription data between these two images. Look carefully at each text field. IMAGE 1 is the computer entry screen. IMAGE 2 is the original paper prescription. Give me accuracy scores for how well the entered data matches the original prescription."
+    "system_prompt": "You are a pharmacy prescription verification assistant. Follow these steps EXACTLY:\n\nSTEP 1: OCR AND READ BOTH IMAGES\nCarefully extract all visible text from both images. Pay special attention to:\n- IMAGE 1: Highlighted fields (yellow/blue backgrounds), form labels, entered data\n- IMAGE 2: Prescription document text, signatures, printed information\n\nSTEP 2: EXTRACT SPECIFIC FIELDS\nFrom the text you read, identify these 4 fields in each image:\n- PATIENT_NAME: Full patient name (may include DOB)\n- PRESCRIBER_NAME: Doctor/prescriber name (may include credentials/NPI)\n- DRUG_NAME: Medication name + strength + form (e.g., \"Hydroxyzine HCl 50 MG tablet\")\n- DIRECTION_SIG: Complete medication instructions (how to take it)\n\nSTEP 3: COMPARE EXTRACTED FIELDS\nFor each field, compare what you found in IMAGE 1 vs IMAGE 2:\n- Are they essentially the same information?\n- Account for: different formats, abbreviations, name order, medical equivalencies\n- Consider: spelling variations, OCR artifacts, handwriting differences\n\nSTEP 4: SCORE EACH COMPARISON (0-100)\n- 95-100: Perfect match or medically equivalent\n- 85-94: Very good match with minor format differences\n- 75-84: Good match with acceptable variations\n- 60-74: Questionable match, significant differences\n- 0-59: Poor match, major discrepancies, or missing data\n\nSTEP 5: RESPOND IN EXACT FORMAT\nFirst list what you extracted, then provide scores:\n[FIELD]: [IMAGE1_TEXT] vs [IMAGE2_TEXT]\n\npatient_name: [score]\nprescriber_name: [score]\ndrug_name: [score]\ndirection_sig: [score]",
+    "user_prompt": "Please follow the 5-step process to verify this prescription:\n\n1. OCR: Read all text carefully from both images\n2. EXTRACT: Find patient name, prescriber name, drug name, and directions in each image\n3. COMPARE: Match the extracted fields between images\n4. SCORE: Rate similarity (0-100) for each field\n5. RESPOND: List extractions and provide scores\n\nIMAGE 1 hints: Patient name often highlighted, prescriber in 'Written By', drug in 'Item', directions in blue section\nIMAGE 2 hints: Patient name after 'Patient Name:', prescriber after 'Issued By:', drug after 'Medication Prescribed:', directions in large text\n\nBe thorough in Step 1 (OCR) - read everything you can see before proceeding to extraction."
   },
   "vlm_regions": {
     "data_entry": [
-      20,
-      145,
-      396,
-      959
+      10,
+      10,
+      410,
+      820
     ],
     "source": [
-      417,
-      197,
-      1307,
-      933
+      420,
+      10,
+      920,
+      720
     ]
   },
   "vlm_settings": {
@@ -28,10 +28,10 @@
     "auto_enhance": true,
     "resize_max_width": 1600,
     "resize_max_height": 1200,
-    "enhance_mode": "high_resolution",
+    "enhance_mode": "pharmacy_optimized",
     "apply_sharpening": true,
-    "contrast_boost": 1.8,
-    "brightness_boost": 1.1,
+    "contrast_boost": 2.2,
+    "brightness_boost": 1.15,
     "max_image_tokens_total": 2048,
     "max_image_tokens_per_image": 1024
   }

@@ -5,7 +5,14 @@ import logging
 
 class AI_Verifier:
     def __init__(self, config):
-        self.config = config.get("ai_config", {})
+        # Support both old format (ai_config key) and new format (llm_config key)
+        if isinstance(config, dict) and "llm_config" in config:
+            self.config = config.get("llm_config", {})
+        elif isinstance(config, dict) and "ai_config" in config:
+            self.config = config.get("ai_config", {})
+        else:
+            # Direct config object or fallback
+            self.config = config if isinstance(config, dict) else {}
         self.client = openai.OpenAI(
             base_url=self.config.get("base_url"),
             api_key=self.config.get("api_key"),

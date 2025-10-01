@@ -183,13 +183,6 @@
     "patient_address": false,
     "prescriber_address": false
   },
-  "ai_config": {
-    "base_url": "http://192.168.100.187:8081",
-    "model_name": "",
-    "api_key": "",
-    "system_prompt": "You are a pharmacist verifying prescription data entry accuracy and gives a matching score:\n1. Verify entered vs source text for accuracy and equivalency\n2. Account for OCR artifacts\n3. give equivalency score for drugs (brandname = generic)\n4. matching one of the source prescribers (if there are 2, separated by '/') is a match\n5. use semantic analysis for directions\n\nResponse format (EXACTLY as shown, Only include fields that are provided. Use whole numbers only.):\npatient_name: [0-100 score]\nprescriber_name: [0-100 score] \ndrug_name: [0-100 score]\ndirection_sig: [0-100 score]\n\n",
-    "user_prompt": "Patient Name:\nEntered: {patient_name_entered}\nSource: {patient_name_source}\n\nPrescriber Name:\nEntered: {prescriber_name_entered}\nSource: {prescriber_name_source}\n\nDrug Name:\nEntered: {drug_name_entered}\nSource: {drug_name_source}\n\nDirections/Sig:\nEntered: {direction_sig_entered}\nSource: {direction_sig_source}"
-  },
   "advanced_settings": {
     "trigger": {
       "keywords": [
