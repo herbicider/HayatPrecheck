@@ -574,14 +574,8 @@ direction_sig: [30-40 score]""")
             scores = self._parse_vlm_response(response_content)
             self.logger.debug(f"VLM: Parsed scores: {scores}")
             
-            # Log what VLM "read" for debugging purposes
-            self.logger.info("=== VLM VISUAL ANALYSIS DEBUG ===")
-            self.logger.info(f"VLM analyzed {len(scores)} fields from the prescription images")
-            for field, score in scores.items():
-                self.logger.info(f"  {field}: VLM confidence {score}% (visual comparison result)")
-            
-            # Extract any text the VLM mentioned it could read
-            self._log_vlm_text_extraction(response_content)
+            # Minimal logging for production
+            self.logger.debug(f"VLM analyzed {len(scores)} fields from prescription images")
             
             return scores
             
@@ -596,79 +590,108 @@ direction_sig: [30-40 score]""")
 
     def _parse_vlm_response(self, response_content: str) -> Dict[str, int]:
         """
-        Parse VLM response format like:
-        [FIELD]: [IMAGE1_TEXT] vs [IMAGE2_TEXT]
-        patient_name: 85
-        prescriber_name: 90
-        drug_name: 75
-        direction_sig: 30
-        
-        Only extract numeric scores, ignore comparison text (but log it for debugging)
+        Parse VLM JSON response format:
+        {
+          "left": {
+            "patient_name": "text from left",
+            "prescriber_name": "text from left",
+            "drug_name": "text from left",
+            "direction_sig": "text from left"
+          },
+          "right": {
+            "patient_name": "text from right",
+            "prescriber_name": "text from right", 
+            "drug_name": "text from right",
+            "direction_sig": "text from right"
+          },
+          "scores": {
+            "patient_name": 100,
+            "prescriber_name": 95,
+            "drug_name": 100,
+            "direction_sig": 100
+          }
+        }
         """
         scores = {}
-        lines = response_content.split('\n')
         
-        # First log all comparison extractions for debugging
-        self.logger.info("=== VLM FIELD EXTRACTIONS (DEBUG) ===")
-        for line in lines:
-            line = line.strip()
-            if ':' in line and (' vs ' in line or 'vs' in line):
-                self.logger.info(f"  {line}")
-        
-        for line in lines:
-            line = line.strip()
-            if ':' in line:
-                try:
-                    field, value_str = line.split(':', 1)
-                    field = field.strip().lower()
-                    value_str = value_str.strip()
-                    
-                    # Skip lines that are comparison extractions (contain 'vs')
-                    if ' vs ' in value_str.lower() or value_str.lower().startswith('vs '):
-                        continue
-                    
-                    # Extract numeric score - look for standalone numbers only
-                    import re
-                    score_match = re.search(r'\b(\d{1,3})\b', value_str)
-                    if not score_match:
-                        continue
-                    
-                    score = int(score_match.group(1))
-                    
-                    # Validate score range (0-100)
-                    if score < 0 or score > 100:
-                        self.logger.warning(f"VLM: Score {score} out of range (0-100) for field '{field}'")
-                        continue
+        try:
+            import json
+            
+            # Clean the response - remove any markdown code blocks if present
+            cleaned_response = response_content.strip()
+            if cleaned_response.startswith("```json"):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.endswith("```"):
+                cleaned_response = cleaned_response[:-3]
+            cleaned_response = cleaned_response.strip()
+            
+            # Parse JSON
+            data = json.loads(cleaned_response)
+            
+            # Log extraction details for debugging
+            self.logger.debug("=== VLM JSON EXTRACTION ===")
+            if "left" in data:
+                for field, value in data["left"].items():
+                    self.logger.debug(f"LEFT {field}: {value}")
+            
+            if "right" in data:
+                for field, value in data["right"].items():
+                    self.logger.debug(f"RIGHT {field}: {value}")
+            
+            # Extract and validate scores
+            if "scores" in data:
+                for field, score in data["scores"].items():
+                    # Validate score
+                    valid_scores = [0, 50, 95, 100]
+                    if score not in valid_scores:
+                        self.logger.warning(f"VLM: Invalid score {score} for field '{field}'. Valid scores: {valid_scores}")
+                        # Round to nearest valid score
+                        if score < 25:
+                            score = 0
+                        elif score < 72:
+                            score = 50
+                        elif score < 97:
+                            score = 95
+                        else:
+                            score = 100
+                        self.logger.info(f"VLM: Rounded score to {score} for field '{field}'")
                     
                     # Map field names to expected keys
                     field_mapping = {
                         'patient_name': 'patient_name',
-                        'patient': 'patient_name',
-                        'prescriber_name': 'prescriber_name', 
-                        'prescriber': 'prescriber_name',
-                        'doctor': 'prescriber_name',
+                        'prescriber_name': 'prescriber_name',
                         'drug_name': 'drug_name',
-                        'drug': 'drug_name',
-                        'medication': 'drug_name',
-                        'sig': 'direction_sig',
-                        'direction_sig': 'direction_sig',
-                        'directions': 'direction_sig',
-                        'instructions': 'direction_sig'
+                        'direction_sig': 'direction_sig'
                     }
                     
                     mapped_field = field_mapping.get(field, field)
                     if mapped_field in ['patient_name', 'prescriber_name', 'drug_name', 'direction_sig']:
                         scores[mapped_field] = score
-                        self.logger.debug(f"VLM: Parsed {mapped_field}: {score}")
-                    
-                except (ValueError, IndexError) as e:
-                    self.logger.debug(f"VLM: Could not parse line '{line}': {e}")
-                    continue
+                        self.logger.debug(f"VLM: {mapped_field}: {score}")
+            
+        except json.JSONDecodeError as e:
+            self.logger.error(f"VLM: Failed to parse JSON response: {e}")
+            self.logger.debug(f"VLM: Raw response was: {response_content[:200]}...")
+            return {}
+        except Exception as e:
+            self.logger.error(f"VLM: Error processing JSON response: {e}")
+            return {}
         
-        # Log final parsed scores
-        self.logger.info("=== VLM FINAL SCORES ===")
+        # Log final results (minimal for production)
+        self.logger.info("=== VLM VERIFICATION RESULTS ===")
         for field, score in scores.items():
-            self.logger.info(f"  {field}: {score}%")
+            if score == 0:
+                status = "FAILED"
+            elif score == 50:
+                status = "REVIEW"
+            elif score == 95:
+                status = "ACCEPTABLE"
+            elif score == 100:
+                status = "PERFECT"
+            else:
+                status = "UNKNOWN"
+            
+            self.logger.info(f"  {field}: {score}% ({status})")
         
         return scores
 
