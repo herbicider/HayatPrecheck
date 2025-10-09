@@ -18,6 +18,127 @@ class AI_Verifier:
             api_key=self.config.get("api_key"),
         )
 
+    def _robust_json_parse(self, response_content, context="LLM response"):
+        """
+        Robust JSON parser with multiple fallback strategies for handling malformed LLM responses.
+        
+        Args:
+            response_content: Raw response from LLM
+            context: Context for logging
+            
+        Returns:
+            Parsed JSON dictionary or empty dict on failure
+        """
+        import re
+        
+        try:
+            if not response_content or not response_content.strip():
+                logging.error(f"{context}: Empty response received")
+                return {}
+            
+            original_content = response_content
+            logging.debug(f"{context}: Original response: {response_content[:200]}...")
+            
+            # Strategy 1: Try direct JSON parsing first
+            try:
+                cleaned = response_content.strip()
+                return json.loads(cleaned)
+            except json.JSONDecodeError:
+                pass
+            
+            # Strategy 2: Extract from markdown code blocks
+            if "```json" in response_content:
+                try:
+                    json_str = response_content.split("```json")[1].split("```")[0].strip()
+                    logging.debug(f"{context}: Extracted from markdown: {json_str}")
+                    return json.loads(json_str)
+                except (json.JSONDecodeError, IndexError):
+                    pass
+            
+            # Strategy 3: Find JSON object boundaries
+            try:
+                start = response_content.find("{")
+                end = response_content.rfind("}") + 1
+                if start >= 0 and end > start:
+                    json_str = response_content[start:end]
+                    logging.debug(f"{context}: Extracted by boundaries: {json_str}")
+                    return json.loads(json_str)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            
+            # Strategy 4: Clean common formatting issues and retry
+            try:
+                # Remove common markdown artifacts
+                cleaned = response_content.replace("```json", "").replace("```", "").strip()
+                
+                # Remove text before first { and after last }
+                start = cleaned.find("{")
+                end = cleaned.rfind("}") + 1
+                if start >= 0 and end > start:
+                    json_str = cleaned[start:end]
+                    
+                    # Fix common JSON issues
+                    json_str = json_str.replace("'", '"')  # Single to double quotes
+                    json_str = re.sub(r',\s*}', '}', json_str)  # Remove trailing commas
+                    json_str = re.sub(r',\s*]', ']', json_str)  # Remove trailing commas in arrays
+                    
+                    logging.debug(f"{context}: Cleaned JSON: {json_str}")
+                    return json.loads(json_str)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            
+            # Strategy 5: Try to extract key-value pairs with regex (fallback to legacy format)
+            try:
+                logging.warning(f"{context}: Attempting legacy format parsing as last resort")
+                pairs = {}
+                
+                # Look for field: value patterns (legacy format)
+                patterns = [
+                    r'([a-zA-Z_]+):\s*(\d+)',  # field: 123
+                    r'"([^"]+)":\s*(\d+)',     # "field": 123
+                ]
+                
+                for pattern in patterns:
+                    matches = re.findall(pattern, response_content, re.IGNORECASE)
+                    for field, value in matches:
+                        field = field.strip().lower().replace(" ", "_")
+                        # Map common field variations
+                        field_mapping = {
+                            'patient_name': 'patient_name',
+                            'prescriber_name': 'prescriber_name',
+                            'drug_name': 'drug_name',
+                            'sig': 'direction_sig',
+                            'direction_sig': 'direction_sig',
+                            'directions': 'direction_sig'
+                        }
+                        mapped_field = field_mapping.get(field, field)
+                        if mapped_field in ['patient_name', 'prescriber_name', 'drug_name', 'direction_sig']:
+                            try:
+                                pairs[mapped_field] = int(value)
+                            except ValueError:
+                                pass
+                
+                if pairs:
+                    logging.info(f"{context}: Legacy format extraction found: {pairs}")
+                    return pairs
+                    
+            except Exception as regex_error:
+                logging.error(f"{context}: Legacy format extraction failed: {regex_error}")
+            
+            # All strategies failed
+            logging.error(f"{context}: All JSON parsing strategies failed")
+            logging.error(f"{context}: Original response: {original_content}")
+            return {}
+            
+        except json.JSONDecodeError as e:
+            logging.error(f"{context}: JSON decode error: {e}")
+            logging.debug(f"{context}: Problematic content: {response_content}")
+            return {}
+        except Exception as e:
+            logging.error(f"{context}: JSON parsing error: {e}")
+            logging.debug(f"{context}: Problematic content: {response_content}")
+            return {}
+
     def verify_with_ai(self, field_to_verify, ocr_results):
         """
         Verify prescription fields using AI and return structured scores.
@@ -78,17 +199,20 @@ class AI_Verifier:
             # Log only the LLM response content for debugging
             logging.info(f"[LLM Response] {response_content}")
             
-            # Try to parse structured response (new format)
-            scores = self._parse_structured_response(response_content)
+            # Use robust JSON parsing (handles both JSON and legacy formats)
+            scores = self._robust_json_parse(response_content, "LLM")
+            
             if scores:
-                # Validate scores against empty fields
-                validated_scores = self._validate_ai_scores(scores, ocr_results)
+                # Validate scores against empty fields with strict missing data checks
+                validated_scores = self._validate_ai_scores_strict(scores, ocr_results)
                 return validated_scores
             
-            # Fallback to legacy single score extraction
-            legacy_score = self._extract_legacy_score(response_content)
-            validated_legacy = self._validate_single_score(legacy_score, field_to_verify, ocr_results)
-            return {field_to_verify: validated_legacy}
+            # Complete fallback - return 0 for all fields
+            logging.error("LLM: All parsing strategies failed, returning zeros")
+            error_scores = {}
+            for field in ocr_results.keys():
+                error_scores[field] = 0
+            return error_scores
         
         except Exception as e:
             logging.error(f"[LLM Error] An error occurred during AI verification: {e}")
@@ -103,52 +227,44 @@ class AI_Verifier:
             logging.info(f"[LLM Error] Returning zero scores for all fields: {error_scores}")
             return error_scores
 
-    def _parse_structured_response(self, response_content):
-        """
-        Parse structured AI response format like:
-        patient_name: 85
-        prescriber_name: 90
-        drug_name: 75
-        sig: 30
-        """
-        scores = {}
-        lines = response_content.split('\n')
-        
-        for line in lines:
-            line = line.strip()
-            if ':' in line:
-                try:
-                    field, score_str = line.split(':', 1)
-                    field = field.strip().lower()
-                    score = int(''.join(filter(str.isdigit, score_str.strip())))
-                    
-                    # Map field names to expected keys
-                    field_mapping = {
-                        'patient_name': 'patient_name',
-                        'prescriber_name': 'prescriber_name', 
-                        'drug_name': 'drug_name',
-                        'sig': 'direction_sig',
-                        'direction_sig': 'direction_sig',
-                        'directions': 'direction_sig'
-                    }
-                    
-                    mapped_field = field_mapping.get(field, field)
-                    scores[mapped_field] = score
-                    
-                except (ValueError, IndexError):
-                    continue
-        
-        return scores if scores else None
 
-    def _extract_legacy_score(self, response_content):
-        """Extract single score from legacy response format."""
-        try:
-            return int(''.join(filter(str.isdigit, response_content)))
-        except ValueError:
-            return 0
+
+    def _validate_ai_scores_strict(self, scores, ocr_results):
+        """Enhanced validation with strict missing data checks like VLM verifier."""
+        validated_scores = {}
+        
+        for field, score in scores.items():
+            if field in ocr_results:
+                entered, source = ocr_results[field]
+                
+                # STRICT MISSING DATA VALIDATION (same logic as VLM)
+                if score > 0:  # Only validate if we're giving a positive score
+                    # Check for missing entered data
+                    if not entered.strip():
+                        logging.warning(f"LLM: {field} - Empty entered data but got score {score}. Forcing to 0")
+                        score = 0
+                    # Check for missing source data  
+                    elif not source.strip():
+                        logging.warning(f"LLM: {field} - Empty source data but got score {score}. Forcing to 0")
+                        score = 0
+                    # Check for explicit null/missing indicators
+                    elif (str(source).lower().strip() in ["null", "none", "n/a", "not available", "missing"] or
+                          str(entered).lower().strip() in ["null", "none", "n/a", "not available", "missing"]):
+                        logging.warning(f"LLM: {field} - Null/missing indicator detected. Entered: '{entered}', Source: '{source}'. Forcing to 0")
+                        score = 0
+                
+                # Validate score range
+                score = max(0, min(100, int(score)))
+                validated_scores[field] = score
+            else:
+                # Field not in input data, but still validate range
+                score = max(0, min(100, int(score)))
+                validated_scores[field] = score
+                
+        return validated_scores
 
     def _validate_ai_scores(self, scores, ocr_results):
-        """Validate AI scores against input data to prevent unrealistic scores for empty fields."""
+        """Legacy validation method - kept for backward compatibility."""
         validated_scores = {}
         
         for field, score in scores.items():
@@ -178,15 +294,4 @@ class AI_Verifier:
                 
         return validated_scores
 
-    def _validate_single_score(self, score, field_name, ocr_results):
-        """Validate single score for legacy format."""
-        if field_name in ocr_results:
-            entered, source = ocr_results[field_name]
-            
-            # Check for empty fields
-            if not entered.strip() or not source.strip():
-                if score > 20:
-                    logging.warning(f"AI gave high score ({score}) to empty field '{field_name}'. Reducing to 0.")
-                    return 0
-                    
-        return score
+

@@ -435,147 +435,66 @@ class VLM_Verifier:
 
     def verify_with_vlm(self) -> Dict[str, int]:
         """
-        Capture screenshots and verify prescription fields using VLM.
+        FIVE-STEP VLM verification with DOB support:
+        1. Send LEFT image  
+        2. Extract from LEFT (patient name, DOB, prescriber, drug, directions)
+        3. Send RIGHT image
+        4. Extract ALL info from RIGHT 
+        5. Search LEFT info in RIGHT and score matches
         
         Returns:
             Dictionary with scores for each field found
         """
         try:
-            # Capture screenshots of both regions
-            self.logger.debug("VLM: Capturing data entry region screenshot")
+            # Step 1: Capture LEFT image (data entry)
+            self.logger.debug("VLM: Step 1 - Capturing LEFT image (data entry)")
             data_entry_img = self.capture_region_screenshot("data_entry")
+            if not data_entry_img:
+                self.logger.error("VLM: Failed to capture LEFT image")
+                return {}
             
-            self.logger.debug("VLM: Capturing source region screenshot")
+            # Step 2: Extract from LEFT image only 
+            self.logger.debug("VLM: Step 2 - Extracting from LEFT image")
+            data_entry_img = self._prepare_single_image(data_entry_img)
+            left_data = self._extract_from_left_image(data_entry_img)
+            if not left_data:
+                self.logger.error("VLM: Failed to extract from LEFT image")
+                return {}
+            
+            # Step 3: Capture RIGHT image (source prescription)
+            self.logger.debug("VLM: Step 3 - Capturing RIGHT image (source)")
             source_img = self.capture_region_screenshot("source")
-            
-            if not data_entry_img or not source_img:
-                self.logger.error("VLM: Failed to capture required screenshots")
+            if not source_img:
+                self.logger.error("VLM: Failed to capture RIGHT image")
                 return {}
             
-            # Encode images to base64
-            self.logger.debug("VLM: Encoding images for API")
-            data_entry_b64 = self.encode_image_to_base64(data_entry_img)
-            source_b64 = self.encode_image_to_base64(source_img)
-            
-            if not data_entry_b64 or not source_b64:
-                self.logger.error("VLM: Failed to encode images")
+            # Step 4: Extract ALL info from RIGHT image
+            self.logger.debug("VLM: Step 4 - Extracting ALL info from RIGHT image")
+            source_img = self._prepare_single_image(source_img)
+            right_data = self._extract_from_right_image(source_img)
+            if not right_data:
+                self.logger.error("VLM: Failed to extract from RIGHT image")
                 return {}
             
-            # Log payload sizes for debugging
-            total_payload_size = len(data_entry_b64) + len(source_b64)
-            self.logger.debug(f"VLM: Data entry image: {len(data_entry_b64)} chars")
-            self.logger.debug(f"VLM: Source image: {len(source_b64)} chars") 
-            self.logger.debug(f"VLM: Total image payload: {total_payload_size} chars")
-
-            # Token-budget-based resizing
-            max_total_image_tokens = int(self.settings.get("max_image_tokens_total", 3072))
-            max_per_image_tokens = int(self.settings.get("max_image_tokens_per_image", max_total_image_tokens // 2))
-
-            # Compute current tokens
-            de_tokens = self._image_tokens(data_entry_img.width, data_entry_img.height)
-            src_tokens = self._image_tokens(source_img.width, source_img.height)
-            total_tokens = de_tokens + src_tokens
-            self.logger.debug(f"VLM: Image tokens - data_entry={de_tokens}, source={src_tokens}, total={total_tokens}")
-
-            resized = False
-            if de_tokens > max_per_image_tokens:
-                data_entry_img = self._resize_to_token_budget(data_entry_img, max_per_image_tokens)
-                data_entry_b64 = self.encode_image_to_base64(data_entry_img)
-                resized = True
-            if src_tokens > max_per_image_tokens:
-                source_img = self._resize_to_token_budget(source_img, max_per_image_tokens)
-                source_b64 = self.encode_image_to_base64(source_img)
-                resized = True
-
-            if resized:
-                # Recompute totals after per-image budget
-                de_tokens = self._image_tokens(data_entry_img.width, data_entry_img.height)
-                src_tokens = self._image_tokens(source_img.width, source_img.height)
-                total_tokens = de_tokens + src_tokens
-                self.logger.debug(f"VLM: After per-image resize tokens total={total_tokens}")
-
-            if total_tokens > max_total_image_tokens:
-                self.logger.warning(f"VLM: Token budget exceeded ({total_tokens}>{max_total_image_tokens}), resizing both")
-                # Share budget proportionally by area
-                de_budget = max(1, int(max_total_image_tokens * (data_entry_img.width * data_entry_img.height) /
-                                       max(1, (data_entry_img.width * data_entry_img.height + source_img.width * source_img.height))))
-                src_budget = max_total_image_tokens - de_budget
-
-                data_entry_img = self._resize_to_token_budget(data_entry_img, de_budget)
-                source_img = self._resize_to_token_budget(source_img, src_budget)
-                data_entry_b64 = self.encode_image_to_base64(data_entry_img)
-                source_b64 = self.encode_image_to_base64(source_img)
-
-                de_tokens = self._image_tokens(data_entry_img.width, data_entry_img.height)
-                src_tokens = self._image_tokens(source_img.width, source_img.height)
-                total_tokens = de_tokens + src_tokens
-                self.logger.info(f"VLM: After joint resize tokens total={total_tokens}")
-
-            # Prepare the API request - use system prompt from config
-            system_prompt = self.config.get("system_prompt", """You are a prescription verification assistant. Compare the entered prescription data (first image) with the source prescription (second image). Analyze the following fields if visible:
-patient_name
-prescriber_name
-drug_name
-direction_sig (directions for use)
-For each field, provide a confidence score from low to high based on how well the entered data matches the source of each section. Use drug equivalency knowledge and semantic analysis.  
-Response format (EXACTLY as shown, Only include fields that are provided. Use whole numbers only.):
-patient_name: [0-10 score]
-prescriber_name: [10-20 score] 
-drug_name: [20-30 score]
-direction_sig: [30-40 score]""")
-
-            user_prompt = self.config.get("user_prompt", "Please compare these prescription images. First image shows entered data, second shows the source prescription. Analyze all visible prescription fields and provide confidence scores.")
+            # Step 5: Search LEFT info in RIGHT and score matches
+            self.logger.debug("VLM: Step 5 - Searching and scoring matches")
+            scores = self._search_and_score_matches(left_data, right_data)
             
-            messages = [
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": user_prompt
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{data_entry_b64}"
-                            }
-                        },
-                        {
-                            "type": "image_url", 
-                            "image_url": {
-                                "url": f"data:image/png;base64,{source_b64}"
-                            }
-                        }
-                    ]
-                }
-            ]
-            
-            self.logger.debug("VLM: Sending request to vision model")
-            self.logger.debug(f"VLM: Model: {self.config.get('model_name')}")
-            self.logger.debug(f"VLM: Base URL: {self.config.get('base_url')}")
-            self.logger.debug(f"VLM: Image sizes - Data entry: {data_entry_img.size}, Source: {source_img.size}")
-            
-            # Make the API call
-            chat_completion = self.client.chat.completions.create(
-                messages=messages,
-                model=self.config.get("model_name", "llava-next"),
-                max_tokens=self.config.get("max_tokens", 500),
-                temperature=self.config.get("temperature", 0.1)
-            )
-            
-            response_content = chat_completion.choices[0].message.content.strip()
-            self.logger.info(f"[VLM Raw Response] {response_content}")
-            
-            # Parse the response
-            scores = self._parse_vlm_response(response_content)
-            self.logger.debug(f"VLM: Parsed scores: {scores}")
-            
-            # Minimal logging for production
-            self.logger.debug(f"VLM analyzed {len(scores)} fields from prescription images")
+            # Log final results
+            self.logger.info("=== VLM VERIFICATION RESULTS ===")
+            for field, score in scores.items():
+                if score == 0:
+                    status = "FAILED"
+                elif score == 50:
+                    status = "REVIEW"
+                elif score == 95:
+                    status = "ACCEPTABLE"
+                elif score == 100:
+                    status = "PERFECT"
+                else:
+                    status = "UNKNOWN"
+                
+                self.logger.info(f"  {field}: {score}% ({status})")
             
             return scores
             
@@ -585,8 +504,439 @@ direction_sig: [30-40 score]""")
             self.logger.error(f"[VLM Error] Model: {self.config.get('model_name')}")
             self.logger.error(f"[VLM Error] Base URL: {self.config.get('base_url')}")
             
-            # Return empty dict on error
+                        # Return empty dict on error
             return {}
+    
+    def _prepare_single_image(self, image: Image.Image) -> str:
+        """Prepare and encode a single image for API"""
+        try:
+            # Apply token budget (resize if needed)
+            max_width = self.settings.get("resize_max_width", 1920)
+            max_height = self.settings.get("resize_max_height", 1440)
+            
+            # Resize if image is too large
+            if image.width > max_width or image.height > max_height:
+                image.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+                self.logger.debug(f"Resized image to {image.width}x{image.height}")
+            
+            # Apply enhancements
+            image = self._enhance_image(image)
+            
+            # Save debug image if enabled
+            if self.settings.get("debug_save_images", False):
+                self._save_debug_image(image, "processed")
+            
+            # Encode to base64
+            return self.encode_image_to_base64(image)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to prepare image: {e}")
+            return ""
+    
+    def _extract_from_left_image(self, data_entry_b64: str) -> Dict[str, str]:
+        """Extract fields from LEFT image using Step 1 prompts"""
+        try:
+            import json
+            
+            # Use customizable prompts from config
+            vlm_model_config = self.config.get("vlm_config", {})
+            system_prompt = vlm_model_config.get("step1_system_prompt", "Extract from LEFT image only.")
+            user_prompt = vlm_model_config.get("step1_user_prompt", "Extract prescription fields from the LEFT image.")
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user", 
+                    "content": [
+                        {"type": "text", "text": user_prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data_entry_b64}"}}
+                    ]
+                }
+            ]
+            
+            # Call OpenAI API
+            chat_completion = self.client.chat.completions.create(
+                messages=messages,
+                model=self.config.get("model_name", ""),
+                max_tokens=self.config.get("max_tokens", 500),
+                temperature=self.config.get("temperature", 0.0)
+            )
+            
+            response_content = chat_completion.choices[0].message.content or ""
+            self.logger.debug(f"LEFT extraction raw: {response_content}")
+            
+            # Validate response before parsing
+            if not self._validate_vlm_response(response_content, "Step1"):
+                self.logger.error("Step1: Response validation failed")
+                return {}
+            
+            # Use robust JSON parsing
+            extracted = self._robust_json_parse(response_content, "Step1")
+            if not extracted:
+                self.logger.error("Step1: Failed to extract valid JSON, using empty dict")
+                return {}
+            
+            self.logger.debug(f"LEFT extracted: {extracted}")
+            return extracted
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract from LEFT image: {e}")
+            return {}
+    
+    def _extract_from_right_image(self, source_b64: str) -> Dict[str, str]:
+        """Extract ALL info from RIGHT image using Step 2 prompts"""
+        try:
+            import json
+            
+            # Use customizable prompts from config
+            vlm_model_config = self.config.get("vlm_config", {})
+            system_prompt = vlm_model_config.get("step2_system_prompt", "Extract from RIGHT image.")
+            user_prompt = vlm_model_config.get("step2_user_prompt", "Extract all prescription information from the RIGHT image.")
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{source_b64}"}}
+                    ]
+                }
+            ]
+            
+            # Call OpenAI API
+            chat_completion = self.client.chat.completions.create(
+                messages=messages,
+                model=self.config.get("model_name", ""),
+                max_tokens=self.config.get("max_tokens", 500),
+                temperature=self.config.get("temperature", 0.0)
+            )
+            
+            response_content = chat_completion.choices[0].message.content or ""
+            self.logger.debug(f"RIGHT extraction raw: {response_content}")
+            
+            # Validate response before parsing
+            if not self._validate_vlm_response(response_content, "Step2"):
+                self.logger.error("Step2: Response validation failed")
+                return {}
+            
+            # Use robust JSON parsing
+            extracted = self._robust_json_parse(response_content, "Step2")
+            if not extracted:
+                self.logger.error("Step2: Failed to extract valid JSON, using empty dict")
+                return {}
+            
+            self.logger.debug(f"RIGHT extracted: {extracted}")
+            return extracted
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract from RIGHT image: {e}")
+            return {}
+    
+    def _validate_vlm_response(self, response_content: str, context: str = "VLM response") -> bool:
+        """
+        Pre-validate VLM response before attempting JSON parsing.
+        
+        Args:
+            response_content: Raw response from VLM
+            context: Context for logging
+            
+        Returns:
+            True if response looks valid for JSON parsing, False otherwise
+        """
+        try:
+            if not response_content or not response_content.strip():
+                self.logger.error(f"{context}: Empty response received")
+                return False
+                
+            content = response_content.strip()
+            
+            # Check for minimum requirements
+            if len(content) < 10:
+                self.logger.error(f"{context}: Response too short ({len(content)} chars)")
+                return False
+            
+            # Check for JSON structure indicators
+            has_braces = "{" in content and "}" in content
+            has_quotes = '"' in content
+            
+            if not has_braces:
+                self.logger.error(f"{context}: No JSON braces found in response")
+                return False
+                
+            if not has_quotes:
+                self.logger.warning(f"{context}: No quotes found - may not be valid JSON")
+            
+            # Check for common VLM failure patterns
+            failure_patterns = [
+                "i can't",
+                "i cannot", 
+                "unable to",
+                "not possible",
+                "cannot see",
+                "can't see",
+                "no text",
+                "not visible",
+                "unclear"
+            ]
+            
+            content_lower = content.lower()
+            for pattern in failure_patterns:
+                if pattern in content_lower:
+                    self.logger.error(f"{context}: VLM failure pattern detected: '{pattern}'")
+                    return False
+            
+            # Check for excessive explanatory text (should be mostly JSON)
+            # Count non-JSON characters vs total
+            json_start = content.find("{")
+            json_end = content.rfind("}") + 1
+            
+            if json_start >= 0 and json_end > json_start:
+                json_portion = content[json_start:json_end]
+                non_json_chars = len(content) - len(json_portion)
+                
+                # If more than 50% is non-JSON content, it's probably problematic
+                if non_json_chars > len(json_portion):
+                    self.logger.warning(f"{context}: Response has excessive non-JSON content ({non_json_chars} vs {len(json_portion)})")
+            
+            self.logger.debug(f"{context}: Response validation passed")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"{context}: Response validation error: {e}")
+            return False
+
+    def _robust_json_parse(self, response_content: str, context: str = "VLM response") -> Dict[str, Any]:
+        """
+        Robust JSON parser with multiple fallback strategies for handling malformed VLM responses.
+        
+        Args:
+            response_content: Raw response from VLM
+            context: Context for logging (e.g., "step1", "step2", "step3")
+            
+        Returns:
+            Parsed JSON dictionary or empty dict on failure
+        """
+        import json
+        import re
+        
+        try:
+            if not response_content or not response_content.strip():
+                self.logger.error(f"{context}: Empty response received")
+                return {}
+            
+            original_content = response_content
+            self.logger.debug(f"{context}: Original response: {response_content[:200]}...")
+            
+            # Strategy 1: Try direct JSON parsing first
+            try:
+                cleaned = response_content.strip()
+                return json.loads(cleaned)
+            except json.JSONDecodeError:
+                pass
+            
+            # Strategy 2: Extract from markdown code blocks
+            if "```json" in response_content:
+                try:
+                    json_str = response_content.split("```json")[1].split("```")[0].strip()
+                    self.logger.debug(f"{context}: Extracted from markdown: {json_str}")
+                    return json.loads(json_str)
+                except (json.JSONDecodeError, IndexError):
+                    pass
+            
+            # Strategy 3: Find JSON object boundaries
+            try:
+                start = response_content.find("{")
+                end = response_content.rfind("}") + 1
+                if start >= 0 and end > start:
+                    json_str = response_content[start:end]
+                    self.logger.debug(f"{context}: Extracted by boundaries: {json_str}")
+                    return json.loads(json_str)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            
+            # Strategy 4: Clean common formatting issues and retry
+            try:
+                # Remove common markdown artifacts
+                cleaned = response_content.replace("```json", "").replace("```", "").strip()
+                
+                # Remove text before first { and after last }
+                start = cleaned.find("{")
+                end = cleaned.rfind("}") + 1
+                if start >= 0 and end > start:
+                    json_str = cleaned[start:end]
+                    
+                    # Fix common JSON issues
+                    json_str = json_str.replace("'", '"')  # Single to double quotes
+                    json_str = re.sub(r',\s*}', '}', json_str)  # Remove trailing commas
+                    json_str = re.sub(r',\s*]', ']', json_str)  # Remove trailing commas in arrays
+                    
+                    self.logger.debug(f"{context}: Cleaned JSON: {json_str}")
+                    return json.loads(json_str)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            
+            # Strategy 5: Try to extract key-value pairs with regex
+            try:
+                self.logger.warning(f"{context}: Attempting regex extraction as last resort")
+                pairs = {}
+                
+                # Look for "field": value patterns
+                patterns = [
+                    r'"([^"]+)":\s*(\d+)',  # "field": 123
+                    r'([a-zA-Z_]+):\s*(\d+)',  # field: 123
+                ]
+                
+                for pattern in patterns:
+                    matches = re.findall(pattern, response_content, re.IGNORECASE)
+                    for field, value in matches:
+                        field = field.strip().lower().replace(" ", "_")
+                        if field in ['patient_name', 'patient_dob', 'prescriber_name', 'drug_name', 'direction_sig']:
+                            try:
+                                pairs[field] = int(value)
+                            except ValueError:
+                                pass
+                
+                if pairs:
+                    self.logger.info(f"{context}: Regex extraction found: {pairs}")
+                    return pairs
+                    
+            except Exception as regex_error:
+                self.logger.error(f"{context}: Regex extraction failed: {regex_error}")
+            
+            # All strategies failed
+            self.logger.error(f"{context}: All JSON parsing strategies failed")
+            self.logger.error(f"{context}: Original response: {original_content}")
+            return {}
+            
+        except json.JSONDecodeError as e:
+            self.logger.error(f"{context}: JSON decode error: {e}")
+            self.logger.debug(f"{context}: Problematic content: {response_content}")
+            return {}
+        except Exception as e:
+            self.logger.error(f"{context}: JSON parsing error: {e}")
+            self.logger.debug(f"{context}: Problematic content: {response_content}")
+            return {}
+
+    def _search_and_score_matches(self, left_data: Dict[str, str], right_data: Dict[str, str]) -> Dict[str, int]:
+        """Search LEFT info in RIGHT data and score matches using Step 3 prompts"""
+        response_content = ""
+        try:
+            import json
+            import re
+            
+            # Use customizable prompts from config
+            vlm_model_config = self.config.get("vlm_config", {})
+            system_prompt = vlm_model_config.get("step3_system_prompt", "Search and score matches.")
+            user_prompt = vlm_model_config.get("step3_user_prompt", "Search LEFT data in RIGHT data and score.")
+            
+            # Format the prompt with actual data
+            formatted_prompt = user_prompt.format(
+                left_data=json.dumps(left_data, indent=2),
+                right_data=json.dumps(right_data, indent=2)
+            )
+            
+            # Enhanced system prompt to enforce JSON format
+            enhanced_system_prompt = f"""{system_prompt}
+
+CRITICAL: You MUST respond with ONLY a valid JSON object. No explanations, no markdown, no extra text.
+Your response must be exactly in this format:
+{{
+  "patient_name": 100,
+  "patient_dob": 100,
+  "prescriber_name": 95,
+  "drug_name": 100,
+  "direction_sig": 100
+}}
+
+Use only these exact scores: 0, 50, 95, or 100. Nothing else."""
+            
+            messages = [
+                {"role": "system", "content": enhanced_system_prompt},
+                {"role": "user", "content": formatted_prompt}
+            ]
+            
+            # Call OpenAI API
+            chat_completion = self.client.chat.completions.create(
+                messages=messages,
+                model=self.config.get("model_name", ""),
+                max_tokens=self.config.get("max_tokens", 200),
+                temperature=self.config.get("temperature", 0.0)
+            )
+            
+            response_content = chat_completion.choices[0].message.content or ""
+            self.logger.debug(f"Step3 raw response: {response_content}")
+            
+            # Validate response before parsing
+            if not self._validate_vlm_response(response_content, "Step3"):
+                self.logger.error("Step3: Response validation failed")
+                return {"patient_name": 0, "patient_dob": 0, "prescriber_name": 0, "drug_name": 0, "direction_sig": 0}
+            
+            # Use robust JSON parsing
+            scores_data = self._robust_json_parse(response_content, "Step3")
+            
+            if not scores_data:
+                self.logger.error("Step3: No valid JSON data extracted, using fallback")
+                return {"patient_name": 0, "patient_dob": 0, "prescriber_name": 0, "drug_name": 0, "direction_sig": 0}
+            
+            # Validate and normalize scores with strict missing data checks
+            validated_scores = {}
+            expected_fields = ["patient_name", "patient_dob", "prescriber_name", "drug_name", "direction_sig"]
+            
+            for field in expected_fields:
+                score = scores_data.get(field, 0)
+                
+                # Ensure score is numeric
+                try:
+                    score = int(float(score))
+                except (ValueError, TypeError):
+                    self.logger.warning(f"Step3: Invalid score '{score}' for {field}, defaulting to 0")
+                    score = 0
+                
+                # STRICT MISSING DATA VALIDATION
+                # Check if we're trying to score a field that's missing in the right data
+                right_field_value = right_data.get(field)
+                left_field_value = left_data.get(field)
+                
+                if score > 0:  # Only validate if we're giving a positive score
+                    # Check for explicitly null or missing right data
+                    if (right_field_value is None or 
+                        right_field_value == "null" or 
+                        right_field_value == "" or
+                        str(right_field_value).lower().strip() in ["null", "none", "n/a", "not available", "missing"]):
+                        
+                        # But left side has data
+                        if (left_field_value and 
+                            left_field_value != "null" and 
+                            left_field_value != "" and
+                            str(left_field_value).lower().strip() not in ["null", "none", "n/a"]):
+                            
+                            self.logger.warning(f"Step3: {field} - LEFT has data '{left_field_value}' but RIGHT is missing/null '{right_field_value}'. Forcing score to 0")
+                            score = 0
+                
+                # Validate score range and round to nearest valid value
+                valid_scores = [0, 50, 95, 100]
+                if score not in valid_scores:
+                    original_score = score
+                    if score < 25:
+                        score = 0
+                    elif score < 72:
+                        score = 50
+                    elif score < 97:
+                        score = 95
+                    else:
+                        score = 100
+                    self.logger.info(f"Step3: Rounded score {original_score} -> {score} for {field}")
+                
+                validated_scores[field] = score
+            
+            self.logger.debug(f"Step3: Final validated scores: {validated_scores}")
+            return validated_scores
+            
+        except Exception as e:
+            self.logger.error(f"Failed to search and score matches: {e}")
+            self.logger.error(f"Step3: Raw response was: {response_content}")
+            return {"patient_name": 0, "patient_dob": 0, "prescriber_name": 0, "drug_name": 0, "direction_sig": 0}
 
     def _parse_vlm_response(self, response_content: str) -> Dict[str, int]:
         """
@@ -694,6 +1044,261 @@ direction_sig: [30-40 score]""")
             self.logger.info(f"  {field}: {score}% ({status})")
         
         return scores
+
+    def _prepare_images_for_api(self, data_entry_img: Image.Image, source_img: Image.Image) -> Tuple[Image.Image, Image.Image]:
+        """Apply token budget and resizing to both images"""
+        # Token-budget-based resizing
+        max_total_image_tokens = int(self.settings.get("max_image_tokens_total", 3072))
+        max_per_image_tokens = int(self.settings.get("max_image_tokens_per_image", max_total_image_tokens // 2))
+
+        # Compute current tokens
+        de_tokens = self._image_tokens(data_entry_img.width, data_entry_img.height)
+        src_tokens = self._image_tokens(source_img.width, source_img.height)
+        total_tokens = de_tokens + src_tokens
+        self.logger.debug(f"VLM: Image tokens - data_entry={de_tokens}, source={src_tokens}, total={total_tokens}")
+
+        resized = False
+        if de_tokens > max_per_image_tokens:
+            data_entry_img = self._resize_to_token_budget(data_entry_img, max_per_image_tokens)
+            resized = True
+        if src_tokens > max_per_image_tokens:
+            source_img = self._resize_to_token_budget(source_img, max_per_image_tokens)
+            resized = True
+
+        if resized:
+            # Recompute totals after per-image budget
+            de_tokens = self._image_tokens(data_entry_img.width, data_entry_img.height)
+            src_tokens = self._image_tokens(source_img.width, source_img.height)
+            total_tokens = de_tokens + src_tokens
+            self.logger.debug(f"VLM: After per-image resize tokens total={total_tokens}")
+
+        if total_tokens > max_total_image_tokens:
+            self.logger.warning(f"VLM: Token budget exceeded ({total_tokens}>{max_total_image_tokens}), resizing both")
+            # Share budget proportionally by area
+            de_budget = max(1, int(max_total_image_tokens * (data_entry_img.width * data_entry_img.height) /
+                                   max(1, (data_entry_img.width * data_entry_img.height + source_img.width * source_img.height))))
+            src_budget = max_total_image_tokens - de_budget
+
+            data_entry_img = self._resize_to_token_budget(data_entry_img, de_budget)
+            source_img = self._resize_to_token_budget(source_img, src_budget)
+
+            de_tokens = self._image_tokens(data_entry_img.width, data_entry_img.height)
+            src_tokens = self._image_tokens(source_img.width, source_img.height)
+            total_tokens = de_tokens + src_tokens
+            self.logger.info(f"VLM: After joint resize tokens total={total_tokens}")
+
+        return data_entry_img, source_img
+
+    def _extract_from_left_image(self, data_entry_b64: str) -> Dict[str, str]:
+        """Step 1: Extract fields from LEFT image only"""
+        try:
+            # Create focused prompt for LEFT extraction only
+            extraction_prompt = """Extract prescription fields from this pharmacy data entry image.
+
+This image shows what pharmacy staff ENTERED into their system. The fields are color-coded:
+- GREEN background = patient name
+- YELLOW background = prescriber name  
+- BLUE background = drug name and directions
+
+Find the actual text in each color area and respond with ONLY this JSON:
+{
+  "patient_name": "actual patient name from image",
+  "prescriber_name": "actual prescriber name from image", 
+  "drug_name": "actual drug name from image",
+  "direction_sig": "actual directions from image"
+}"""
+
+            messages = [
+                {
+                    "role": "user", 
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": extraction_prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{data_entry_b64}"
+                            }
+                        }
+                    ]
+                }
+            ]
+
+            chat_completion = self.client.chat.completions.create(
+                messages=messages,
+                model=self.config.get("model_name", "llava-next"),
+                max_tokens=500,
+                temperature=0.0
+            )
+
+            response_content = chat_completion.choices[0].message.content.strip()
+            self.logger.debug(f"LEFT extraction raw: {response_content}")
+
+            # Parse JSON response
+            import json
+            cleaned_response = response_content.strip()
+            if cleaned_response.startswith("```json"):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.endswith("```"):
+                cleaned_response = cleaned_response[:-3]
+            cleaned_response = cleaned_response.strip()
+
+            left_data = json.loads(cleaned_response)
+            self.logger.debug(f"LEFT extracted: {left_data}")
+            return left_data
+
+        except Exception as e:
+            self.logger.error(f"Failed to extract from left image: {e}")
+            return {}
+
+    def _extract_from_right_image(self, source_b64: str) -> Dict[str, str]:
+        """Step 2: Extract fields from RIGHT image only"""
+        try:
+            # Create focused prompt for RIGHT extraction only
+            extraction_prompt = """Extract prescription fields from this original prescription document.
+
+This image shows the ORIGINAL prescription from the doctor/source. Find these fields:
+- Patient name (look for labels like "Patient:", "Name:", "Patient Name:")
+- Prescriber name (look for labels like "Prescriber:", "Dr.:", "Issued by:", "Written by:")
+- Drug name (look for labels like "Drug:", "Medication:", "Rx:", medication names)
+- Directions (look for dosing instructions, sig, "Take", "Use", etc.)
+
+Find the actual text for each field and respond with ONLY this JSON:
+{
+  "patient_name": "actual patient name from prescription",
+  "prescriber_name": "actual prescriber name from prescription",
+  "drug_name": "actual drug name from prescription", 
+  "direction_sig": "actual directions from prescription"
+}"""
+
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": extraction_prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{source_b64}"
+                            }
+                        }
+                    ]
+                }
+            ]
+
+            chat_completion = self.client.chat.completions.create(
+                messages=messages,
+                model=self.config.get("model_name", "llava-next"),
+                max_tokens=500,
+                temperature=0.0
+            )
+
+            response_content = chat_completion.choices[0].message.content.strip()
+            self.logger.debug(f"RIGHT extraction raw: {response_content}")
+
+            # Parse JSON response
+            import json
+            cleaned_response = response_content.strip()
+            if cleaned_response.startswith("```json"):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.endswith("```"):
+                cleaned_response = cleaned_response[:-3]
+            cleaned_response = cleaned_response.strip()
+
+            right_data = json.loads(cleaned_response)
+            self.logger.debug(f"RIGHT extracted: {right_data}")
+            return right_data
+
+        except Exception as e:
+            self.logger.error(f"Failed to extract from right image: {e}")
+            return {}
+
+    def _compare_and_score(self, left_extractions: Dict[str, str], right_extractions: Dict[str, str]) -> Dict[str, int]:
+        """Step 3: Compare extractions and apply scoring with name normalization"""
+        try:
+            import json
+            
+            comparison_prompt = f"""Compare these prescription field extractions and score them.
+
+LEFT (entered data): {json.dumps(left_extractions, indent=2)}
+
+RIGHT (original prescription): {json.dumps(right_extractions, indent=2)}
+
+Apply name normalization rules:
+- Patient names: "Last, First" = "First Last" (100 score if same person)
+- Prescriber names: Ignore titles (Dr., MD, NP, DO) (100 score if same person)
+
+Score each field:
+- 0 = extraction failed or no match
+- 50 = different person/drug (needs review)
+- 95 = similar/equivalent match
+- 100 = exact match or normalized match
+
+Respond with ONLY this JSON:
+{{
+  "patient_name": 100,
+  "prescriber_name": 95,
+  "drug_name": 100,
+  "direction_sig": 100
+}}"""
+
+            messages = [
+                {
+                    "role": "user",
+                    "content": comparison_prompt
+                }
+            ]
+
+            chat_completion = self.client.chat.completions.create(
+                messages=messages,
+                model=self.config.get("model_name", "llava-next"),
+                max_tokens=200,
+                temperature=0.0
+            )
+
+            response_content = chat_completion.choices[0].message.content.strip()
+            self.logger.debug(f"Comparison raw: {response_content}")
+
+            # Parse JSON response
+            import json
+            cleaned_response = response_content.strip()
+            if cleaned_response.startswith("```json"):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.endswith("```"):
+                cleaned_response = cleaned_response[:-3]
+            cleaned_response = cleaned_response.strip()
+
+            scores_data = json.loads(cleaned_response)
+            
+            # Validate scores
+            validated_scores = {}
+            for field, score in scores_data.items():
+                valid_scores = [0, 50, 95, 100]
+                if score not in valid_scores:
+                    self.logger.warning(f"Invalid score {score} for {field}, rounding to nearest valid")
+                    if score < 25:
+                        score = 0
+                    elif score < 72:
+                        score = 50
+                    elif score < 97:
+                        score = 95
+                    else:
+                        score = 100
+                
+                if field in ['patient_name', 'prescriber_name', 'drug_name', 'direction_sig']:
+                    validated_scores[field] = score
+
+            self.logger.debug(f"Final scores: {validated_scores}")
+            return validated_scores
+
+        except Exception as e:
+            self.logger.error(f"Failed to compare and score: {e}")
+            return {}
 
     def _log_vlm_text_extraction(self, response_content: str):
         """Log any text that VLM mentions it could read for debugging purposes"""

@@ -57,13 +57,16 @@ def vlm_settings_page(main_config: Dict[str, Any]):
         st.error("❌ Failed to load VLM configuration")
         return
     
-    # Main tabs (simplified)
-    tab1, tab2 = st.tabs(["🔧 Model Settings", "🧪 Testing"])
+    # Main tabs with prompt customization
+    tab1, tab2, tab3 = st.tabs(["🔧 Model Settings", "📝 Prompt Customization", "🧪 Testing"])
 
     with tab1:
         show_model_settings(vlm_config, vlm_config_file)
 
     with tab2:
+        show_prompt_customization(vlm_config, vlm_config_file)
+
+    with tab3:
         show_vlm_testing(vlm_config)
 
 def load_vlm_config(config_file: str) -> Optional[Dict[str, Any]]:
@@ -114,96 +117,305 @@ def save_vlm_config(config: Dict[str, Any], config_file: str) -> bool:
         st.error(f"Error saving VLM config: {e}")
         return False
 
+def show_prompt_customization(vlm_config: Dict[str, Any], config_file: str):
+    """Show VLM prompt customization for all steps"""
+    st.subheader("📝 5-Step VLM Prompt Customization")
+    st.info("🎯 **Customize prompts for each step** of the VLM verification process")
+    
+    # Get current prompts from vlm_config section
+    vlm_model_config = vlm_config.get("vlm_config", {})
+    step1_system = vlm_model_config.get("step1_system_prompt", "")
+    step1_user = vlm_model_config.get("step1_user_prompt", "")
+    step2_system = vlm_model_config.get("step2_system_prompt", "")
+    step2_user = vlm_model_config.get("step2_user_prompt", "")
+    step3_system = vlm_model_config.get("step3_system_prompt", "")
+    step3_user = vlm_model_config.get("step3_user_prompt", "")
+    
+    # Step 1: LEFT Image Extraction
+    st.write("### 🔍 Step 1 & 2: LEFT Image Data Extraction")
+    st.caption("Extract patient information from the data entry (left) image")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("**System Prompt (Step 1):**")
+        new_step1_system = st.text_area(
+            "System instructions for LEFT image extraction:",
+            value=step1_system,
+            height=150,
+            help="Instructions for how to extract data from the LEFT image",
+            key="step1_system"
+        )
+    
+    with col2:
+        st.write("**User Prompt (Step 1):**")
+        new_step1_user = st.text_area(
+            "User message for LEFT image extraction:",
+            value=step1_user,
+            height=150,
+            help="The message sent with the LEFT image",
+            key="step1_user"
+        )
+    
+    # Step 2: RIGHT Image Extraction
+    st.write("### 🔍 Step 3 & 4: RIGHT Image Data Extraction")
+    st.caption("Extract patient information from the source prescription (right) image")
+    
+    col3, col4 = st.columns(2)
+    with col3:
+        st.write("**System Prompt (Step 2):**")
+        new_step2_system = st.text_area(
+            "System instructions for RIGHT image extraction:",
+            value=step2_system,
+            height=150,
+            help="Instructions for how to extract data from the RIGHT image",
+            key="step2_system"
+        )
+    
+    with col4:
+        st.write("**User Prompt (Step 2):**")
+        new_step2_user = st.text_area(
+            "User message for RIGHT image extraction:",
+            value=step2_user,
+            height=150,
+            help="The message sent with the RIGHT image",
+            key="step2_user"
+        )
+    
+    # Step 3: Matching and Scoring
+    st.write("### 🎯 Step 5: Intelligent Matching and Scoring")
+    st.caption("Compare extracted data and provide confidence scores")
+    
+    col5, col6 = st.columns(2)
+    with col5:
+        st.write("**System Prompt (Step 3):**")
+        new_step3_system = st.text_area(
+            "System instructions for matching and scoring:",
+            value=step3_system,
+            height=150,
+            help="Instructions for how to compare extracted data and score matches",
+            key="step3_system"
+        )
+    
+    with col6:
+        st.write("**User Prompt (Step 3):**")
+        new_step3_user = st.text_area(
+            "User message for matching and scoring:",
+            value=step3_user,
+            height=150,
+            help="The message sent with the extracted data for comparison",
+            key="step3_user"
+        )
+    
+    # Reset to defaults button
+    col_reset, col_save = st.columns([1, 2])
+    
+    with col_reset:
+        if st.button("🔄 Reset to Defaults", help="Reset all prompts to default values"):
+            # Set default prompts in the vlm_config section
+            default_prompts = get_default_prompts()
+            if "vlm_config" not in vlm_config:
+                vlm_config["vlm_config"] = {}
+            vlm_config["vlm_config"].update(default_prompts)
+            
+            if save_vlm_config(vlm_config, config_file):
+                st.success("✅ Prompts reset to defaults!")
+                time.sleep(1)
+                st.rerun()
+    
+    # Save prompts button
+    with col_save:
+        if st.button("💾 Save All Prompts", type="primary"):
+            # Update configuration in the vlm_config section
+            if "vlm_config" not in vlm_config:
+                vlm_config["vlm_config"] = {}
+            
+            vlm_config["vlm_config"]["step1_system_prompt"] = new_step1_system
+            vlm_config["vlm_config"]["step1_user_prompt"] = new_step1_user
+            vlm_config["vlm_config"]["step2_system_prompt"] = new_step2_system
+            vlm_config["vlm_config"]["step2_user_prompt"] = new_step2_user
+            vlm_config["vlm_config"]["step3_system_prompt"] = new_step3_system
+            vlm_config["vlm_config"]["step3_user_prompt"] = new_step3_user
+            
+            if save_vlm_config(vlm_config, config_file):
+                st.success("✅ All prompts saved successfully!")
+                st.info("🔄 Changes will take effect on the next VLM verification")
+                time.sleep(1)
+                st.rerun()
+
+def get_default_prompts() -> Dict[str, str]:
+    """Get default prompts for all VLM steps"""
+    return {
+        "step1_system_prompt": """You are a prescription data extraction assistant. Analyze the provided prescription image and extract key information.
+
+Extract ONLY the following fields if clearly visible:
+- patient_name: Full patient name 
+- patient_dob: Patient date of birth (if visible)
+- prescriber_name: Prescriber/doctor name
+- drug_name: Medication name and strength
+- direction_sig: Directions for use/dosing instructions
+
+Return ONLY a JSON object with the extracted data. Use empty string "" for fields that are not clearly visible.
+
+Example format:
+{
+  "patient_name": "Smith, John",
+  "patient_dob": "01/15/1980", 
+  "prescriber_name": "Dr. Johnson",
+  "drug_name": "Lisinopril 10mg",
+  "direction_sig": "Take 1 tablet daily"
+}""",
+        
+        "step1_user_prompt": "Please extract the prescription information from this LEFT image. Return only the JSON object with the extracted data.",
+        
+        "step2_system_prompt": """You are a prescription data extraction assistant. Analyze the provided prescription image and extract key information.
+
+Extract ONLY the following fields if clearly visible:
+- patient_name: Full patient name 
+- patient_dob: Patient date of birth (if visible)
+- prescriber_name: Prescriber/doctor name
+- drug_name: Medication name and strength
+- direction_sig: Directions for use/dosing instructions
+
+Return ONLY a JSON object with the extracted data. Use empty string "" for fields that are not clearly visible.
+
+Example format:
+{
+  "patient_name": "Smith, John",
+  "patient_dob": "01/15/1980", 
+  "prescriber_name": "Dr. Johnson",
+  "drug_name": "Lisinopril 10mg",
+  "direction_sig": "Take 1 tablet daily"
+}""",
+        
+        "step2_user_prompt": "Please extract the prescription information from this RIGHT image. Return only the JSON object with the extracted data.",
+        
+        "step3_system_prompt": """You are a prescription verification assistant. Compare the LEFT (data entry) information with the RIGHT (source prescription) information and provide confidence scores.
+
+For each field, provide a score from 0-100 based on how well they match:
+- 90-100: Perfect or near-perfect match
+- 70-89: Good match with minor differences  
+- 50-69: Moderate match with some discrepancies
+- 30-49: Poor match with significant differences
+- 0-29: Very poor match or completely different
+
+Important matching rules:
+- Different people names should score 0-10
+- Different medications should score 0-20
+- Minor spelling/formatting differences are acceptable (score 80-95)
+- Missing information should score 0
+
+Return ONLY a JSON object with field scores:
+{
+  "patient_name": 95,
+  "patient_dob": 90,
+  "prescriber_name": 0,
+  "drug_name": 85,
+  "direction_sig": 92
+}""",
+        
+        "step3_user_prompt": "Compare the LEFT data entry information with the RIGHT source prescription information and provide confidence scores for each field. LEFT data: {left_data}. RIGHT data: {right_data}. Return only the JSON scoring object."
+    }
+
 def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
     """Show VLM model configuration settings"""
-    st.subheader("🤖 Model Configuration")
     
     vlm_model_config = vlm_config.get("vlm_config", {})
     vlm_settings = vlm_config.get("vlm_settings", {})
     
-    col1, col2 = st.columns(2)
+    with st.expander("🤖 Model Configuration", expanded=True):
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**🔗 Connection Settings:**")
+            st.caption("Configure connection to your llamacpp server")
+            
+            base_url = st.text_input(
+                "Base URL:",
+                value=vlm_model_config.get("base_url", "http://localhost:8080/v1"),
+                help="URL of your llamacpp server API endpoint"
+            )
+            
+            api_key = st.text_input(
+                "API Key:",
+                value=vlm_model_config.get("api_key", "llamacpp"),
+                type="password",
+                help="Any value (llamacpp doesn't require authentication)"
+            )
+            
+            model_name = st.text_input(
+                "Model Name:",
+                value=vlm_model_config.get("model_name", "your-model-name"),
+                help="Exact model name from your server (check with: curl your-server:8080/v1/models)"
+            )
+        
+        with col2:
+            st.write("**⚙️ Generation Settings:**")
+            
+            max_tokens = st.number_input(
+                "Max Tokens:",
+                min_value=100,
+                max_value=2000,
+                value=vlm_model_config.get("max_tokens", 500),
+                help="Maximum tokens in the response"
+            )
+            
+            temperature = st.slider(
+                "Temperature:",
+                min_value=0.0,
+                max_value=1.0,
+                value=vlm_model_config.get("temperature", 0.1),
+                step=0.1,
+                help="Lower = more consistent, Higher = more creative"
+            )
     
-    with col1:
-        st.write("**🔗 Connection Settings:**")
-        st.caption("Configure connection to your llamacpp server")
-        
-        base_url = st.text_input(
-            "Base URL:",
-            value=vlm_model_config.get("base_url", "http://localhost:8080/v1"),
-            help="URL of your llamacpp server API endpoint"
-        )
-        
-        api_key = st.text_input(
-            "API Key:",
-            value=vlm_model_config.get("api_key", "llamacpp"),
-            type="password",
-            help="Any value (llamacpp doesn't require authentication)"
-        )
-        
-        model_name = st.text_input(
-            "Model Name:",
-            value=vlm_model_config.get("model_name", "your-model-name"),
-            help="Exact model name from your server (check with: curl your-server:8080/v1/models)"
-        )
-    
-    with col2:
-        st.write("**⚙️ Generation Settings:**")
-        
-        max_tokens = st.number_input(
-            "Max Tokens:",
-            min_value=100,
-            max_value=2000,
-            value=vlm_model_config.get("max_tokens", 500),
-            help="Maximum tokens in the response"
-        )
-        
-        temperature = st.slider(
-            "Temperature:",
-            min_value=0.0,
-            max_value=1.0,
-            value=vlm_model_config.get("temperature", 0.1),
-            step=0.1,
-            help="Lower = more consistent, Higher = more creative"
-        )
-    
-    # Image capture basics (moved from Advanced)
-    st.write("**🖼️ Image Capture Settings:**")
-    img_col1, img_col2 = st.columns(2)
-    with img_col1:
-        image_format = st.selectbox(
-            "Image Format:",
-            options=["PNG", "JPEG"],
-            index=0 if vlm_settings.get("image_format", "PNG") == "PNG" else 1,
-            help="Format for captured images"
-        )
-    with img_col2:
-        image_quality = st.slider(
-            "Image Quality:",
-            min_value=50,
-            max_value=100,
-            value=vlm_settings.get("image_quality", 95),
-            help="Image quality (for JPEG format)"
-        )
+        # Image capture basics (moved from Advanced)
+        with st.expander("🖼️ Image Capture Settings", expanded=False):
+            img_col1, img_col2 = st.columns(2)
+            with img_col1:
+                image_format = st.selectbox(
+                    "Image Format:",
+                    options=["PNG", "JPEG"],
+                    index=0 if vlm_settings.get("image_format", "PNG") == "PNG" else 1,
+                    help="Format for captured images"
+                )
+            with img_col2:
+                image_quality = st.slider(
+                    "Image Quality:",
+                    min_value=50,
+                    max_value=100,
+                    value=vlm_settings.get("image_quality", 95),
+                    help="Image quality (for JPEG format)"
+                )
 
-    # System prompt configuration
-    st.write("**📝 System Prompt:**")
-    system_prompt = st.text_area(
-        "System Prompt:",
-        value=vlm_model_config.get("system_prompt", ""),
-        height=200,
-        help="Instructions for the VLM on how to compare prescriptions"
-    )
-    
-    # User prompt configuration
-    st.write("**💬 User Prompt:**")
-    user_prompt = st.text_area(
-        "User Prompt:",
-        value=vlm_model_config.get("user_prompt", ""),
-        height=100,
-        help="The message sent with each comparison request"
-    )
-    
-    # Quick access to coordinate GUI (open settings_gui.py)
+        # Save button
+        if st.button("💾 Save Model Settings", type="primary"):
+            # Preserve existing prompts in vlm_config
+            existing_vlm_config = vlm_config.get("vlm_config", {})
+            vlm_config["vlm_config"] = {
+                "base_url": base_url,
+                "api_key": api_key,
+                "model_name": model_name,
+                "max_tokens": max_tokens,
+                "temperature": temperature
+            }
+            # Keep existing step prompts if they exist
+            for key in existing_vlm_config:
+                if key.startswith("step") and "prompt" in key:
+                    vlm_config["vlm_config"][key] = existing_vlm_config[key]
+            
+            # Persist image settings under vlm_settings (preserve other keys)
+            updated_vlm_settings = dict(vlm_settings)
+            updated_vlm_settings["image_format"] = image_format
+            updated_vlm_settings["image_quality"] = image_quality
+            vlm_config["vlm_settings"] = updated_vlm_settings
+            
+            if save_vlm_config(vlm_config, config_file):
+                st.success("✅ Model settings saved!")
+                time.sleep(1)
+                st.rerun()
+
+    # Quick access to coordinate GUI (outside collapsible for easy access)
     st.markdown("---")
     st.write("**🛠️ Coordinate Setup:**")
     if st.button("🎯 Open Settings GUI (settings_gui.py)"):
@@ -221,28 +433,6 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
                 st.success("✅ Settings GUI launched! Check for a new window.")
         except Exception as e:
             st.error(f"❌ Failed to launch Settings GUI: {e}")
-
-    # Save button
-    if st.button("💾 Save Model Settings", type="primary"):
-        vlm_config["vlm_config"] = {
-            "base_url": base_url,
-            "api_key": api_key,
-            "model_name": model_name,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "system_prompt": system_prompt,
-            "user_prompt": user_prompt
-        }
-        # Persist image settings under vlm_settings (preserve other keys)
-        updated_vlm_settings = dict(vlm_settings)
-        updated_vlm_settings["image_format"] = image_format
-        updated_vlm_settings["image_quality"] = image_quality
-        vlm_config["vlm_settings"] = updated_vlm_settings
-        
-        if save_vlm_config(vlm_config, config_file):
-            st.success("✅ Model settings saved!")
-            time.sleep(1)
-            st.rerun()
 
 def show_region_setup(vlm_config: Dict[str, Any], config_file: str):
     """Show region setup for VLM screenshots"""

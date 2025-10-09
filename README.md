@@ -1,24 +1,55 @@
-# What's new?
+# Pharmacy Pre-Check Verification Agent
 
-**08/25/2025: Vision Language Model (VLM) Integration** (Testing and improving)
+## 🆕 What's New?
 
-**🎯 VLM-Powered Direct Image Verification**: The system now supports Vision Language Models for direct prescription image comparison without OCR text extraction. This revolutionary approach analyzes screenshots directly using AI vision capabilities, providing superior accuracy for handwritten prescriptions and complex layouts while maintaining visual context and formatting. Configure your VLM server (I'm running Qwen2-VL on a 8Gb Vram PC, the low VRAM is limiting the size the of image, by which the verification quality is low. I have ordered the RTX 5080 16Gb for testing purpose. I stil counting on my nVIDIA DXG Spark order, expected mid Sep now. It should load the 70B model eaisly). All AIs are using the OpenAI API standard. 
+**10/01/2025: Major VLM and LLM Enhancements** 
 
-**08/23/2025: Major Improvement in OCR performance!**
+**🎯 Enhanced Multi-Step VLM Verification**: 
+Upgraded to RTX5080 16GB to run Qwen2.5-VL-7B Q8 via LM Studio. Rerouted to the Vision Language Model system with a sophisticated 4-step analysis process:
+- **Step 1**: AI extracts visible text from data entry
+- **Step 2**: AI extract visible text from original prescription image
+- **Step 3**: Performs field-by-field comparison with semantic understanding
+- **Step 4**: Provides confidence scores (0-100) with detailed reasoning
+
+**🔧 JSON Format Enforcement**: Both VLM and LLM systems now feature standard JSON parsing:
+- Handles AI response variations and formatting inconsistencies  
+- Ensures reliable field scoring and verification results
+- Unified JSON architecture across all AI verification methods
+
+**Medically trained LLM**: Currently using a medically trained Gemma3 4B model for LLM semantic analysis. In the future I plan to train a Hayat specific model.
+
+**08/25/2025: Vision Language Model (VLM) Integration** 
+
+**🎯 VLM-Powered Direct Image Verification**: The system now supports Vision Language Models for direct prescription image comparison without OCR text extraction. This revolutionary approach analyzes screenshots directly using AI vision capabilities, providing superior accuracy for handwritten prescriptions and complex layouts while maintaining visual context and formatting. Supports multiple models including Qwen2-VL, LLaVA-Next, and Phi-3.5-Vision for flexible deployment options. All AIs use the OpenAI API standard for seamless integration. I'm using Qwen2.5-VL-7B Q4_K_M on A770 8GB, all prompts are designed for this model.
+
+**08/23/2025: Major Improvement in OCR Performance!**
 
 **Asynchronous Processing**: The system now supports asynchronous processing for improved performance and responsiveness. Also the image pre-process is standardized regardless of the OCR engine selection. This allows for faster verification and reduced waiting times, especially when dealing with multiple prescriptions in a row. *Now it's as fast as I have to add delay timer for the next scan*. However, please be patient with the first time turning ON the monitor or the very first scan since it's loading a lot of libraries.
 
-**08/21/2025: Adaptive trigger for other software**
+**08/21/2025: Adaptive Trigger for Other Software**
 
-**Customized Trigger**: Instead of hardcoding the trigger to "Pre-Check Rx", the system now allows you to set a custom trigger area and keyword to star the verifying process. Also a separated "Rx#" area for detecting new prescriptions. I have made all settings to the config.json file and availabe on the streamlit settings page for easy configuration. This allows you to adapt the system to work with any pharmacy software that has a similar pre-check verification process.
+**Customized Trigger**: Instead of hardcoding the trigger to "Pre-Check Rx", the system now allows you to set a custom trigger area and keyword to start the verifying process. Also a separated "Rx#" area for detecting new prescriptions. I have made all settings available in the config.json file and accessible on the streamlit settings page for easy configuration. This allows you to adapt the system to work with any pharmacy software that has a similar pre-check verification process.
 
-**08/19/2025: AI incorporation**
+**08/19/2025: AI Incorporation** (Enhanced 10/09/2025)
 
-**AI-Powered Verification**: The system now is able to integrate with OpenAI-compatible APIs for intelligent text comparison and semantic matching. Configure your preferred AI endpoint, API key, and model through the dedicated AI settings page. Customize system and user prompts to optimize verification accuracy for your specific workflow. It allows you to choos what to use AI and what to use traditional fuzzy matching on a per-field basis for maximum flexibility and HIPAA compliance (NEVER send patient info to online AI). 
+**Enhanced AI-Powered Verification**: The system integrates with OpenAI-compatible APIs for intelligent text comparison and semantic matching, now featuring **unified JSON formatting** for consistency with VLM systems. Configure your preferred AI endpoint, API key, and model through the dedicated AI settings page. 
 
-I tried *Gemma 3 1b* model but the accuracy was not satisfying, also tried different 3.2B and 4B models. Now I'm running *Mistral-7B-Q4-K_M* model via *llamacpp* on a Mac mini M1 8Gb, it fits the server capability and provided perfect balance between speed and accuracy. The default prompt and settings are set around this model. You can use a more powerful PC as the AI server but I'm trying to keep the cost low and efficient for small business. A used M1 Mac Mini 8Gb is only about $250, it's running my PHP8 for CRM, MySQL, sFTP, all python reports and now the local AI model fine. Well bang for the buck!
+**New JSON Architecture Features**:
+- **Structured Response Format**: All LLM responses now use standardized JSON format
+- **Enhanced Prompt Engineering**: Strict JSON enforcement prevents parsing errors
+- **Unified Processing**: Same robust parsing system as VLM for reliability
+- **Backward Compatibility**: Works seamlessly with existing OCR workflows
+- **Field-Level Control**: Choose AI vs traditional fuzzy matching per field type
 
-**🔒 HIPAA Compliance Notice**: For maximum privacy protection, use local AI models (like Phi-3 mini, Gemma 3, or Qwen3 via llamacpp) instead of cloud-based APIs when processing patient data. During development and testing, I tested with Phi-3 mini to ensure sensitive information never leaves the premises.
+**Tested Model Performance**:
+- **Mistral-7B-Q4-K_M** via llamacpp (recommended): Perfect balance of speed and accuracy
+- **Phi-3 Mini**: Excellent for HIPAA-compliant local deployment
+- **Qwen2.5**: Superior multilingual and pharmaceutical terminology understanding
+- **Gemma3**: Cost-effective options for basic verification tasks
+
+**Hardware Requirements**: Successfully runs on Mac Mini M1 8GB, providing excellent cost-effectiveness for small pharmacies. The system can handle CRM, databases, file servers, and AI models simultaneously.
+
+**🔒 Enhanced HIPAA Compliance**: For maximum privacy protection, use local AI models (Phi-3 mini, Gemma 3, or Qwen3 via llamacpp) instead of cloud-based APIs. The new JSON architecture ensures no patient data parsing errors while maintaining complete local processing.
 
 **08/15/2025: Major OCR Engine Update**
 
@@ -30,705 +61,469 @@ I tried *Gemma 3 1b* model but the accuracy was not satisfying, also tried diffe
 
 I've noticed on CPU only computer, Tesseract is faster than EasyOCR while EasyOCR provides better accuracy. Pick at your own discretion.
 
-*Have ideas or suggestions? Please submit an issue or reach out!* 
-
-
-# Pharmacy Pre-Check Verification Agent
-
-The **simplest** way to set up and assit your pharmacy data entry verification system! 
-
-Quality pharmacist time should be utilized in a more professional task like therapeutic review, drug-drug-interaction identfication, solution to personalized patient needs, instead of mechanically reading and comparing for the data entry accurcay. 
-
-Human gets tired after hours of reading and, unavoidly, the error rate goes up. While a machine can do the repetative work 24/7 at the same level of performance.
-
-This program will help you! It watches your screen for the trigger on pharmacy software and helps verify that the information entered matches the source document. It places colored boxes over fields to show you if they match (green) or don't match (red). And in YOLO (You only live once!) mode it can even automatically send a key press (F12 by default for PRx) to advance to the next prescription when all fields are green!
-
-Verification of patient DOB, patient address, prescriber address, phone number are option areas can be added. Currently the overall speed is heavily limited by the computer CPU, I'm only keeping the most essential ones mandatory here. Autopilot still needs driver's attention, so use at your own discretion.  
-
-
-## How It Works
-
-This program monitors the selected screen area for the keyword trigger. Once detects, it will performs the following tasks:
-1. Reads the data entered and the source: patient name, prescriber name, drug name, directions/sig, and other optional info from the selected screen regions
-2. Compares the entered data against the source document. This is desgined for standard eRx format where the source info are in the fixed locations. (paper Rx pleae check the "future plan" section).
-3. Gives a matching score for each field based on the similarity of the entered data and the source document (in a very complicated way, I used fuzzy compare, tokenize, cleaning for titles, middle names, handling abbrevations, etc.) OR AI.
-4. Displays colored boxes over the fields to indicate matches (green) or mismatches (red), the passing rate is cutomizable by the user
-5. Optionally, a YOLO (you only live once) mode will automatically send a key press (F12 by default) to autopilot the process
-6. It polls the screen and read Rx number to check if new Rx is displayed, and will start the process again.
-
-## Fancy skill to make it "smart"
-### 🧹 Smart Text Cleaning & Normalization
-
-- **Name Format Normalization**: Automatically converts between "Last, First" and "First Last" formats for accurate patient name comparison
-- **Patient Middle Name Handling**: Intelligently matches names with or without middle names/initials (e.g., "John M Smith" matches "John Smith")
-- **Prescriber Title Cleaning**: Removes professional titles and suffixes (Dr., MD, PharmD, etc.) from prescriber names for consistent comparison
-- **Smart Text Cleaning**: Removes punctuation, normalizes spacing, and handles case differences for consistent comparisons
-- **AI-Powered Semantic Matching**: Uses advanced AI models to understand context and meaning, improving accuracy for complex fields like drug names and directions. This system is designed to work with OpenAI-compatible APIs, allowing you to choose between traditional fuzzy matching and AI-based verification on a per-field basis for maximum flexibility and HIPAA compliance. Basic system prompt and user prompt has been provided for easy customization (tested on Gemini and Phi3-mini).
-
-### 💊 Pharmacy-Specific Intelligence
-
-- **Comprehensive Sig Abbreviation Expansion**: Automatically expands common pharmacy abbreviations:
-  - **Frequency**: bid → twice daily, tid → three times daily, qid → four times daily
-  - **Route**: po → by mouth, sl → sublingual, IM → intramuscular  
-  - **Timing**: ac → before meals, pc → after meals, hs → at bedtime
-  - **Quantity**: q4h → every 4 hours, prn → as needed
-  - **And many more** - handles dozens of standard pharmacy abbreviations
-- **Enhanced Drug Name Matching**: Advanced semantic matching for drug names with:
-  - **Release formulations**: ER (Extended Release), DR (Delayed Release), XR, LA, SA, SR, CR, etc.
-  - **Dosage forms**: TAB (Tablet), CAP (Capsule), TBEC (Tablet Delayed Release), etc.
-  - **Administration routes**: PO (By Mouth), IV (Intravenous), IM (Intramuscular), etc.
-  - **Common pharmacy terms**: DISP (Dispense), SIG (Directions), PRN (As Needed), etc.
-  - **Brand name patterns**: HCL (Hydrochloride), HCTZ (Hydrochlorothiazide), etc.
-  - **Multiple matching strategies**: Direct fuzzy matching, token sort ratio, partial matching, and core drug name matching
-  - **Easy maintenance**: Add custom abbreviations through external JSON configuration file
-- **Flexible Sig Matching**: Accounts for different ways pharmacies express the same directions
-- **Route Normalization**: Handles variations in administration routes (oral/po/by mouth)
-
-#### Drug Name Abbreviation Management
-
-The system includes an extensive pharmaceutical abbreviation system that's completely externalized for easy maintenance:
-
-**Easy Updates Method:**
-1. Edit `abbreviations.json` in the same folder as the main script
-2. Add your custom abbreviations in this format:
-```json
-{
-    " er ": " extended release ",
-    " dr ": " delayed release ",
-    " tbec ": " tablet delayed release ",
-    " your_custom_abbr ": " your expansion "
-}
-```
-
-**Important formatting rules:**
-- Include spaces around abbreviations (e.g., `" er "` not `"er"`)
-- Use lowercase for both abbreviations and expansions
-- The spaces ensure word boundary matching
-
-**Advanced Drug Name Matching Features:** (this is the most time comsuming part of the program)
-- **Preserves dosage information** (5mg, 10ml, etc.) as it's critical for drug identification - metformin 500mg ≠ metformin 1000mg
-- **Strict dosage validation**: Different dosages are treated as different medications to prevent dispensing errors
-- **Smart salt form handling**: 
-  - Normalizes equivalent forms (hydrochloride ↔ hcl) for better matching
-  - Maintains distinct salts as separate drugs (metoprolol tartrate ≠ metoprolol succinate)
-  - Distinguishes release formulations (IR ≠ ER ≠ SR ≠ XR)
-- **Enhanced matching strategies with weighted prioritization**:
-  - **Primary drug name matching** (first word gets highest weight for pharmaceutical accuracy)
-  - Direct fuzzy matching (weighted higher for exact matches)
-  - Token sort ratio (handles word order differences)
-  - Token set ratio (handles extra words, weighted lower to reduce false positives)
-  - Partial ratio (handles subsets, weighted lower)
-  - **Dosage mismatch detection**: Automatically flags when dosages don't match
-  - **Salt form validation**: Identifies incompatible salt combinations
-
-**Testing Your Changes:**
-- Restart the application to load new abbreviations - Stop then start screen
-- Check console output for confirmation that custom abbreviations were loaded
-- Use the OCR testing features in the GUI to verify improvements
+*Have ideas or suggestions? Please submit an issue or reach out!*
 
 ---
 
-## 🤖 Vision Language Model (VLM) Integration
+**AI-Powered Prescription Verification System**
 
-### Overview
+Elevate pharmacy data entry verification with cutting-edge AI technology! This system combines traditional OCR with revolutionary Vision Language Models (VLM) to automate prescription verification, allowing pharmacists to focus on clinical decision-making rather than repetitive data validation.
 
-The Vision Language Model integration represents a breakthrough in prescription verification technology. Instead of relying on OCR text extraction, VLM uses AI vision capabilities to directly analyze prescription screenshots, providing superior accuracy and maintaining visual context.
+## 🌟 Key Features
 
-### 🎯 VLM Advantages
+### 🚀 Advanced AI Integration
+- **Vision Language Models (VLM)**: Direct image analysis without OCR text extraction
+- **Multi-Step AI Verification**: 4-step analysis process with confidence scoring
+- **Local AI Support**: HIPAA-compliant local models (Ollama, LlamaFile)
+- **Intelligent OCR Selection**: Automatic GPU detection for optimal performance
 
-**🔍 Direct Image Analysis**
-- No OCR text extraction required - AI "sees" the images directly
-- Maintains visual context, layout, and formatting information
-- Superior handling of handwritten prescriptions and complex layouts
-- Reduces errors from OCR misreads and text extraction issues
+### 🎯 Smart Verification
+- **Real-time Monitoring**: Visual feedback with colored field overlays (green/red)
+- **Automated Processing**: Optional autopilot mode with configurable key sending
+- **Semantic Understanding**: AI-powered pharmaceutical terminology recognition
+- **Customizable Thresholds**: Adjustable accuracy settings per field type
 
-**🧠 AI-Powered Intelligence**
-- Uses vision-capable language models (LLaVA, Qwen2-VL, Phi-3.5-Vision)
-- Understands medical terminology and pharmaceutical abbreviations contextually
-- Provides confidence scores 0-100 for each prescription field
-- Semantic understanding rather than just string matching
+### 🖥️ User-Friendly Interface
+- **Web Dashboard**: Streamlit-based monitoring and configuration
+- **Visual Setup Tools**: Point-and-click coordinate selection
+- **Mobile Access**: Monitor verification from any device
+- **Comprehensive Analytics**: Performance tracking and error analysis
 
-**⚙️ Flexible Configuration**
-- Works alongside existing OCR system - switch modes easily
-- Configurable screenshot regions with visual selection tool
-- Customizable prompts and model settings
-- Local deployment for HIPAA compliance
+### 🔒 Privacy & Compliance
+- **100% Local Processing**: Patient data never leaves your premises
+- **HIPAA Compliant**: Designed for healthcare environments
+- **No Internet Required**: Core functionality works offline
+- **Open Source**: Complete transparency and auditability  
 
-### 🚀 VLM Quick Setup
 
-#### 1. Install VLM Dependencies
+## 🔧 How It Works
+
+The system monitors your pharmacy software and performs intelligent verification:
+
+### Verification Process
+1. **Trigger Detection**: Monitors for customizable trigger keywords/areas
+2. **Data Capture**: Screenshots designated regions (data entry + source document)
+3. **AI Analysis**: Choice of three verification methods:
+   - **VLM Mode**: Direct image analysis using Vision Language Models
+   - **AI + OCR Mode**: OCR extraction followed by semantic AI comparison
+   - **Traditional Mode**: OCR with fuzzy string matching
+4. **Visual Feedback**: Colored overlays indicate field matches (green) or mismatches (red)
+5. **Automation**: Optional autopilot mode sends configurable key presses
+6. **Continuous Monitoring**: Automatically detects new prescriptions via Rx number changes
+
+### Intelligent Text Processing
+
+#### AI-Powered Analysis (Recommended)
+- **Semantic Understanding**: AI comprehends pharmaceutical terminology and context
+- **Multi-Step Verification**: Separate text extraction, comparison, and confidence scoring
+- **Robust JSON Parsing**: 5-strategy system eliminates format errors
+- **Field-Level Control**: Choose verification method per field type
+
+#### Traditional Methods (Fallback)
+- **Smart Text Cleaning**: Handles name formats, titles, abbreviations
+- **Pharmaceutical Intelligence**: Extensive abbreviation expansion system
+- **Advanced Drug Matching**: Dosage validation and salt form handling
+- **Flexible Sig Processing**: Accounts for different direction formats
+
+## 🤖 AI-Powered Verification Technology
+
+### Vision Language Model (VLM) Integration
+
+**Revolutionary Direct Image Analysis**
+- **No OCR Required**: AI "sees" images directly without text extraction
+- **Superior Handwriting Support**: Excellent with complex layouts and handwritten prescriptions
+- **Visual Context Preservation**: Maintains layout and formatting information
+- **Multi-Step Analysis**: 4-step verification process with confidence scoring
+
+### AI Verification Methods
+
+#### Option 1: VLM Mode (Recommended)
+**Direct Image Analysis**
+- Screenshots → AI Vision Analysis → Semantic Verification
+- Best for handwritten prescriptions and complex layouts
+- Maintains visual context throughout analysis
+- Supports Qwen2.5-VL, LLaVA-Next, Phi-3.5-Vision models
+
+#### Option 2: LLM + OCR Mode
+**Enhanced Traditional Approach**
+- OCR Text Extraction → LLM Semantic Comparison → Confidence Scoring
+- Backward compatible with existing workflows
+- Field-level AI vs traditional matching control
+- Works with any OpenAI-compatible API
+
+#### Option 3: Traditional Mode (Fallback)
+**String-Based Matching**
+- OCR extraction with fuzzy string matching
+- Pharmaceutical abbreviation expansion
+- Smart text cleaning and normalization
+- Fastest processing option
+
+### 🔧 AI System Features
+
+#### Robust JSON Processing
+**5-Strategy Parsing System**:
+1. Direct JSON parsing
+2. Markdown code block extraction
+3. JSON boundary detection
+4. Text cleaning and retry
+5. Regex pattern matching
+
+#### Enhanced Error Handling
+- **Missing Data Detection**: Intelligent scoring of incomplete fields
+- **Response Validation**: Ensures proper field structure and data types
+- **Graceful Degradation**: Automatic fallback when AI responses fail
+- **Comprehensive Testing**: 100% success rate validation
+
+#### HIPAA Compliance
+- **Local AI Models**: Ollama, LlamaFile, or LM Studio deployment
+- **No Internet Required**: Complete offline operation capability
+- **Patient Data Protection**: All processing stays on premises
+- **Audit Trails**: Complete verification logging
+
+## 🚀 Quick Start Guide
+
+### Step 1: Installation
+
+#### Download & Extract
+1. Click the **`< > Code`** button → **`Download ZIP`**
+2. Extract to your desired location (e.g., Desktop)
+
+#### Python Setup
+1. Install Python from [python.org](https://www.python.org/downloads/)
+2. ⚠️ **Critical**: Check "Add Python to PATH" during installation
+
+#### Install Dependencies
 ```bash
-pip install openai pillow pyautogui  # Already included in requirements.txt
+cd HayatPrecheck
+pip install -r requirements.txt
 ```
 
-#### 2. Set Up VLM Server
-Choose your preferred local VLM server:
-
-**Recommended: Ollama (Easiest)**
+**For Advanced Users** (Virtual Environment):
 ```bash
-# Install Ollama from https://ollama.ai
-ollama pull llava-next   # or qwen2-vl, phi3.5-vision
-ollama serve
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+# source .venv/bin/activate  # macOS/Linux
+pip install -r requirements.txt
 ```
 
-**Alternative: LlamaFile**
-```bash
-# Download vision model from https://huggingface.co
-# Run with multimodal support:
-./llamafile --server --multimodal --port 8081
-```
+### Step 2: Automatic Setup (Recommended)
 
-#### 3. Configure VLM in Streamlit
-1. Launch Streamlit: `streamlit run streamlit_app.py`
-2. Navigate to **"VLM Configuration"** in sidebar
-3. **Model Settings Tab**:
-   - Set Base URL (e.g., `http://localhost:11434/v1` for Ollama)
-   - Enter your model name (e.g., `llava-next`)
-   - Configure generation settings
-
-#### 4. Set Up Screenshot Regions
-**Visual Method (Recommended)**:
-1. In VLM Configuration → **Region Setup Tab**
-2. Click **"🎯 Launch Coordinate Helper"**
-3. VLM GUI opens with visual selection:
-   - Take screenshot of your pharmacy software
-   - Click and drag to select **Data Entry Region** (where data is entered)
-   - Click and drag to select **Source Region** (original prescription area)
-   - Save configuration
-
-**Manual Method**:
-- Enter coordinates manually in the Region Setup tab
-- Use "Test Capture" buttons to verify regions
-
-#### 5. Test Your Setup
-1. Go to **Testing Tab** in VLM Configuration
-2. Click **"🔍 Test VLM Connection"** - should show ✅ success
-3. Click **"🚀 Run Complete VLM Verification"** to test full workflow
-
-#### 6. Switch to VLM Mode
-1. Go to **Monitor & Logs** page
-2. Change **Verification Method** from "OCR" to "Vision Language Model"
-3. Start monitoring - VLM will now handle all verifications!
-
-### 🛠️ VLM Configuration GUI
-
-**Launch VLM GUI**: `python vlm_gui.py` or use the Streamlit button
-
-**Features**:
-- 📸 **Visual Screenshot Capture**: See your actual pharmacy software
-- 🖱️ **Click & Drag Selection**: Visually define regions instead of typing coordinates
-- 🔴🔵 **Color-Coded Regions**: Red for data entry, blue for source prescription
-- 📊 **Live Coordinates**: Real-time pixel coordinate display
-- 💾 **Auto-Save**: Direct integration with `vlm_config.json`
-- 🧪 **Built-in Testing**: Test VLM connection and capture regions
-
-### 📋 VLM vs OCR Comparison
-
-| Feature | Traditional OCR | VLM Integration |
-|---------|----------------|-----------------|
-| **Accuracy** | Good for typed text | Superior for all text types |
-| **Handwriting** | Poor | Excellent |
-| **Setup Complexity** | Requires precise coordinates | Simple region selection |
-| **Visual Context** | Lost during text extraction | Preserved in analysis |
-| **Error Types** | OCR misreads | Rare AI hallucination |
-| **Speed** | Fast | Moderate (model-dependent) |
-| **Resource Usage** | CPU only | Benefits from GPU |
-| **Flexibility** | Fixed string matching | Semantic understanding |
-
-### 🔧 Supported VLM Models
-
-**Recommended Models** (tested):
-- **LLaVA-Next**: Excellent general vision capabilities
-- **Qwen2.5-VL**: Superior text recognition, multilingual
-- **Phi-3.5-Vision**: Microsoft's efficient model, good balance
-
-**Model Selection Tips**:
-- **Q4_K_M quantization**: Best balance of accuracy vs speed
-- **7B parameters**: Optimal for prescription verification
-- **Local deployment**: Use Ollama/LlamaFile for HIPAA compliance
-
-### 🧪 VLM Testing & Validation
-
-**Built-in Test Script**:
-```bash
-python test_vlm.py
-```
-
-**Test Checklist**:
-- ✅ Dependencies installed
-- ✅ VLM configuration valid
-- ✅ Model connection successful
-- ✅ Screenshot regions working
-- ✅ Integration test passed
-
-**Troubleshooting VLM Issues**:
-
-| Problem | Solution |
-|---------|----------|
-| "VLM connection failed" | Verify server running, check base_url |
-| "Image input not supported" | Ensure model has vision capabilities |
-| "No scores returned" | Check prompts, verify image contains text |
-| "Screenshot capture failed" | Validate region coordinates |
-
-### 📈 VLM Performance Optimization
-
-**Speed Optimization**:
-- Use quantized models (Q4_K_M recommended)
-- Optimize screenshot region sizes
-- Enable GPU acceleration if available
-- Disable auto-enhance for clear images
-
-**Accuracy Tuning**:
-- Customize system prompts for your pharmacy workflow
-- Adjust confidence thresholds per field type
-- Use pharmacy-specific terminology in prompts
-- Fine-tune regions to capture only relevant text
-
-### 🔒 VLM HIPAA Compliance
-
-**Local Deployment Benefits**:
-- Patient data never leaves your premises
-- Full control over AI model and processing
-- No internet connection required for verification
-- Complete audit trail of all processing
-
-**Recommended Local Setup**:
-- Use Ollama or LlamaFile for easy local deployment
-- Deploy on dedicated pharmacy server for best performance
-- Configure firewall to block external model access
-- Regular backups of model and configuration files
-
----
-
-## Setup Instructions
-
-### Step 1: Download the Project Files
-
-1.  Click the green **`< > Code`** button on the top-right of the GitHub page.
-2.  Select **`Download ZIP`** from the dropdown menu.
-3.  Find the downloaded ZIP file (usually in your `Downloads` folder) and right-click it.
-4.  Select **`Extract All...`** and choose a location to save the files (like your Desktop).
-
-### Step 2: Install Python
-
-If you don't have Python, you'll need to install it.
-
-1.  Go to the official Python download page: [https://www.python.org/downloads/](https://www.python.org/downloads/)
-2.  Download the latest version for Windows.
-3.  Run the installer. **Crucially, check the box at the bottom that says "Add Python to PATH"** before clicking `Install Now`. This makes the next steps much easier.
-
-
-### Step 3: Install Required Libraries
-
-1.  Open the **Command Prompt** (Windows) or **Terminal** (macOS/Linux). You can find it by clicking the Start Menu and typing `cmd` (Windows) or searching for Terminal (macOS/Linux).
-2.  Navigate to the project folder you extracted in Step 1. Type `cd` followed by the path to the folder. For example, if it's on your desktop, you would type:
-    ```
-    cd C:\Users\YourUsername\Desktop\HayatPrecheck
-    ```
-3.  Once you are in the correct folder, copy and paste the following command into the Command Prompt and press **Enter**:
-    ```
-    pip install -r requirements.txt
-    ```
-4.  Advance user please create a virtual environment to avoid conflicts with other Python projects:
-    ```
-    python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
-    pip install -r requirements.txt
-    ```
-
-### Step 4: OCR Engine Setup
-
-🚀 **Automatic OCR Selection** - The system now features **intelligent OCR provider selection** with GPU detection for optimal performance!
-
-#### Automatic OCR Provider Selection
-
-The system automatically selects the best OCR provider based on your hardware capabilities:
-
-**🎯 Smart Selection Algorithm:**
-1. **EasyOCR + nVIDIA GPU** → Best accuracy (90%+) and speed with CUDA-compatible GPU 
-2. **Tesseract** → Best speed when no GPU available
-3. **EasyOCR CPU** → Fallback option for compatibility, slower on CPU but more accurate
-
-**🔧 Key Features:**
-- **GPU Detection**: Automatically detects CUDA-compatible GPUs using PyTorch
-- **Zero Configuration**: Works out-of-the-box with optimal settings
-- **Graceful Fallback**: Falls back intelligently when hardware changes
-- **Performance Optimization**: Always selects the best provider for your system
-- **Clear Logging**: Detailed logs explain selection decisions
-
-
-#### Quick OCR Setup
-
-**One-Command Setup (Recommended):**
+**🎯 One-Command Launch:**
 ```bash
 python launcher.py
 ```
-The launcher will:
-- ✅ **Auto-detect** GPU availability and OCR providers
-- ✅ **Install EasyOCR** automatically if needed
-- ✅ **Configure** your system optimally with AUTO mode
-- ✅ **Test** the installation
-- ✅ **Set up intelligent selection** based on your hardware
 
-#### Manual Installation Options
+The launcher automatically:
+- ✅ Detects GPU availability and selects optimal OCR provider
+- ✅ Installs EasyOCR if needed
+- ✅ Configures system settings
+- ✅ Tests installation
+- ✅ Launches setup wizard
 
-**EasyOCR (Auto-installed when needed):**
+### Step 3: Choose Your Verification Method
+
+#### Option A: Vision Language Model (Best Accuracy)
+1. Install local AI server (Ollama/LM Studio)
+2. Load VLM model (Qwen2.5-VL recommended)
+3. Configure via Streamlit VLM Configuration page
+4. Use visual coordinate selection tool
+
+#### Option B: Traditional OCR + AI
+1. Set up OpenAI-compatible API endpoint
+2. Configure via Streamlit AI Settings page  
+3. Choose per-field AI vs traditional matching
+
+#### Option C: Traditional OCR Only
+1. Use coordinate setup GUI
+2. Configure thresholds via Streamlit
+3. Pure string-based matching
+
+### Step 4: Configuration
+
+#### Coordinate Setup (GUI Method)
 ```bash
-pip install easyocr
+python ui/settings_gui.py
+```
+- Visual drag-and-drop region selection
+- Real-time OCR testing
+- Automatic validation
+
+#### Web Interface Configuration
+```bash
+streamlit run ui/streamlit_app.py
+```
+Open: `http://localhost:8501`
+- Complete settings management
+- Real-time monitoring
+- Performance analytics
+
+### OCR Engine Details
+
+#### Intelligent Auto-Selection
+The system automatically chooses the best OCR provider:
+
+| Hardware | Primary Choice | Backup |
+|----------|----------------|--------|
+| NVIDIA GPU | EasyOCR (CUDA) | Tesseract |
+| CPU Only | Tesseract | EasyOCR (CPU) |
+| Apple Silicon | EasyOCR (MPS) | Tesseract |
+
+#### Manual OCR Installation
+**Tesseract** (if needed):
+- **Windows**: [Download installer](https://digi.bib.uni-mannheim.de/tesseract/)
+- **macOS**: `brew install tesseract`
+- **Linux**: `sudo apt-get install tesseract-ocr`
+
+## �️ User Interface Options
+
+### 🌐 Web Dashboard (Primary Interface)
+
+**Launch Options:**
+```bash
+# Auto-launcher (recommended)
+python launcher.py  # Choose option 3
+
+# Direct launch
+streamlit run ui/streamlit_app.py
 ```
 
-**Tesseract (Alternative for CPU-only systems):**
+**Access:** `http://localhost:8501`
+
+**Features:**
+- 📊 **Real-Time Monitoring**: Live verification results and performance charts
+- ⚙️ **Complete Configuration**: All settings accessible through web interface
+- 📱 **Mobile Responsive**: Monitor from any device on your network
+- 🎯 **Visual Feedback**: Field-by-field analysis and color-coded results
+- 📈 **Analytics Dashboard**: Performance metrics and accuracy tracking
+- 🔧 **Testing Tools**: OCR and VLM testing directly in browser
+
+### 🖼️ GUI Configuration Tools
+
+#### Coordinate Setup GUI
 ```bash
-pip install pytesseract
-```
-
-#### Tesseract Installation
-
-1.  Download the **Tesseract OCR** for your operating system:
-    - **Windows**: [Download Tesseract for Windows](https://digi.bib.uni-mannheim.de/tesseract/tesseract-ocr-w64-setup-v5.3.0.20221214.exe)
-    - **macOS**: `brew install tesseract` (requires [Homebrew](https://brew.sh/))
-    - **Linux**: `sudo apt-get install tesseract-ocr`
-2.  Run the installer and follow the installation wizard with Admin credentials
-3.  The system will automatically detect and use Tesseract when appropriate
-
-## 📱 Features
-
-### Coordinate Setup GUI
-- **📸 Screenshot capture** with one click
-- **🖱️ Click and drag** region selection
-- **🔍 Live OCR testing** to verify text detection
-- **📏 Visual overlays** showing selected regions
-- **💾 Automatic saving** of coordinates
-- **✅ Validation** to ensure setup is correct
-
-### Web Monitoring Dashboard
-- **🟢/🔴 Status indicator** (Running/Stopped)
-- **📊 Real-time charts** of verification results
-- **📋 Live log display** with filtering
-- **📈 Performance metrics** and accuracy tracking
-- **🎯 Field-by-field analysis** (which fields are problematic)
-- **📱 Mobile responsive** - monitor from anywhere
-
-## 🔧 Configuration
-
-**🎯 Setup Notes:**
-- Works with any screen resolution and window configuration
-- Use the GUI coordinate tools to configure regions for your setup
-
-## How to Stop the Program
-
-To stop the program, go to the Command Prompt window where it is running and press the **`Ctrl`** + **`C`** keys at the same time. Or simply close the Command Prompt window.
-
----
-
-## Coordinate Adjustment Tools
-
-### Enhanced GUI Tool (Recommended)
-
-**File:** `settings_gui.py`
-
-A comprehensive graphical tool with advanced features for both coordinate adjustment and general settings:
-
-```bash
-python settings_gui.py
+python ui/settings_gui.py
 ```
 
 **Features:**
-- **Visual Interface**: See your desktop screenshot with overlay rectangles
-- **Drag & Drop**: Click and drag to define regions visually
-- **Real-time Preview**: See coordinate changes immediately
-- **Zoom Controls**: Zoom in/out for precise adjustment (View menu)
-- **OCR Testing**: Test selected regions to verify text detection
-- **Configuration Management**: Import/export settings, manual backups available
-- **Validation**: Check all regions for potential issues
-- **Auto-Save**: Optionally save changes automatically
-- **Keyboard Shortcuts**: Ctrl+S to save, F5 for new screenshot
-- **General Settings**: Configure matching thresholds and automation options
+- **Visual Selection**: Screenshot with drag-and-drop region selection  
+- **Live Testing**: Real-time OCR verification for each region
+- **Precise Control**: Zoom, keyboard shortcuts, coordinate validation
+- **Complete Settings**: Thresholds, automation, and general configuration
 
-**Usage:**
-1. Run the tool and take a screenshot of your pharmacy software
-2. Select "trigger" first and drag around the Trigger text
-3. For each field, select the field name and region type
-4. Drag rectangles around the appropriate text areas
-5. Use "Test OCR" to verify the selection captures text correctly
-6. Adjust general settings like matching thresholds and automation options
-7. Save configuration when complete
-
-### Matching Thresholds
-
-Control how strict the text matching is for each field type:
-
-- **Patient Name Threshold** (default: 75%): How similar patient names must be to consider a match
-- **Prescriber Name Threshold** (default: 75%): How similar prescriber names must be to consider a match  
-- **Drug Name Threshold** (default: 65%): How similar drug names must be to consider a match
-- **Directions/Sig Threshold** (default: 65%): How similar directions must be to consider a match
-
-**Higher values** = More strict matching (fewer false positives, but might miss valid matches)
-**Lower values** = More lenient matching (might catch more matches, but could have false positives)
-
-### Automation Settings
-
-Configure what happens when all fields match:
-
-- **Enable/Disable Automation**: Whether to automatically send a key when all fields are green
-- **Key to Send**: Which key to press (F1-F12, Enter, Tab, Space, Escape)
-- **Delay**: How long to wait (in seconds) before sending the key
-
-**Example Use Cases:**
-- Set key to "F12" to automatically advance to the next prescription
-- Set key to "Enter" to automatically submit the form
-- Set delay to 1.0s to give time to visually confirm before advancing
-
----
-
-## 🌐 Streamlit Web Interface - VISUALLY Friendly
-
-### Quick Start with Streamlit
-
-#### Option 1: Auto-Launcher (Recommended)
-- **Windows**: Run `start.bat` to launch the Streamlit app
-- **Any OS**: Run `python launcher.py` and choose option 3
-
-#### Option 2: Manual Launch
+#### VLM Visual Configuration
 ```bash
-pip install -r requirements.txt
-streamlit run streamlit_app.py
+python ui/vlm_gui.py
 ```
 
-### Streamlit Features
+**Features:**
+- **Point-and-Click Setup**: Visual VLM region selection
+- **Live Preview**: Real-time screenshot capture with overlays
+- **Color-Coded Regions**: Red for data entry, blue for source
+- **Coordinate Validation**: Automatic region testing and validation
 
-- 🏠 **Single Interface**: Everything in one web application
-- 📊 **Real-time Monitoring**: Live charts and analytics of verification performance  
-- ⚙️ **Visual Settings**: Easy configuration with sliders and visual feedback
-- 📱 **Mobile Friendly**: Access from any device on your network
-- 📈 **Advanced Analytics**: Time-based filtering and performance metrics
-- 🔧 **Coordinate Setup**: Screenshot-assisted coordinate configuration
-- 💾 **Backup**: Allow configuration backups for different monitors
-- 🎯 **OCR Testing**: Test regions directly in the interface
+### 📋 Configuration Management
 
+#### Matching Thresholds
+Control verification strictness per field:
+- **Patient Name**: Default 85% similarity
+- **Prescriber Name**: Default 85% similarity  
+- **Drug Name**: Default 85% similarity
+- **Directions/Sig**: Default 85% similarity
 
-### Access Your Application
-Once launched, open your web browser to: http://localhost:8501
+**Tuning Guidelines:**
+- **Higher values** → More strict (fewer false positives)
+- **Lower values** → More lenient (catch more variations)
 
----
+#### Automation Settings
+- **Auto-Key Sending**: Configurable key press when all fields match
+- **Supported Keys**: F1-F12, Enter, Tab, Space, Escape
+- **Timing Control**: Adjustable delay before key sending
+- **Safety Features**: Visual confirmation periods
+
+### 🔧 Basic Operations
+
+**Start Monitoring:**
+```bash
+python core/verification_controller.py
+```
+
+**Stop Program:**
+- Press `Ctrl + C` in terminal
+- Use Stop button in Streamlit interface
+- Close application window
 
 ## 🆘 Troubleshooting
 
-### "tesseract is not installed or it's not in your PATH" Error
+### Common Issues & Solutions
 
-⚠️ **Note**: This error should be rare now that the system uses **automatic OCR selection**. If you encounter this, the system is trying to use Tesseract but it's not properly installed.
+#### OCR Problems
+**Issue**: Text not being detected properly
+- **Solution**: Use GUI coordinate tools to ensure regions are precise
+- **Tip**: Avoid boxes, lines, or artifacts - select text-only areas
+- **Test**: Use "Test OCR" feature to verify each region
+- **Fallback**: System automatically retries with configurable intervals
 
-**Quick Fix**: Ensure your `config.json` has `"ocr_provider": "auto"` to use intelligent OCR selection.
+#### Web Interface Issues
+**Issue**: Streamlit won't open
+```bash
+# Alternative launch methods
+python -m streamlit run ui/streamlit_app.py
+# Try different addresses
+http://127.0.0.1:8501
+http://localhost:8501
+```
+- Check firewall settings (port 8501)
+- Try incognito mode or different browser
+- Ignore HTTPS warnings (Streamlit uses HTTP by default)
 
-If you specifically need Tesseract, try these solutions:
+#### Tesseract Path Errors
+**Issue**: "tesseract is not installed or not in PATH"
+- **Quick Fix**: Set `"ocr_provider": "auto"` in config.json
+- **Windows PATH Fix**:
+  1. Find Tesseract install location (`C:\Program Files\Tesseract-OCR`)
+  2. Add to Windows PATH environment variable
+  3. Restart Command Prompt
 
-**Option 1: Add Tesseract to your system PATH**
-1. Find where Tesseract was installed (usually `C:\Program Files\Tesseract-OCR`). Please make sure you installed it with admin credentials and selected "install for all users".
-2. Add this path to your Windows PATH environment variable:
-   - Press `Windows + R`, type `sysdm.cpl`, and press Enter
-   - Click "Environment Variables"
-   - Under "System Variables", find and select "Path", then click "Edit"
-   - Click "New" and add the Tesseract installation path (e.g., `C:\Program Files\Tesseract-OCR`)
-   - Click "OK" on all windows
-3. Restart your Command Prompt and try running the program again
+#### AI/VLM Connection Issues
+**Issue**: AI models not responding
+- **Check**: Model server is running (Ollama/LM Studio)
+- **Verify**: API endpoint and model name in configuration
+- **Test**: Use testing tabs in Streamlit VLM/AI Configuration pages
+- **Troubleshoot**: Check logs for detailed error messages
 
-**Option 2: Create a local tesseract folder (if Option 1 doesn't work)**
-1. In your project folder, create a new folder named `tesseract`
-2. Copy `tesseract.exe` and the `tessdata` folder from your Tesseract installation directory to this new folder
-3. Your project should then look like this:
-   ```
-   HayatPrecheck-main/
-   |-- 📁 config/                     # Configuration files
-   |   |-- config.json                # Main configuration file
-   |   |-- vlm_config.json           # VLM-specific configuration
-   |   |-- abbreviations.json        # Pharmacy abbreviations database
-   |   |-- 1080laptop.json          # Sample coordinate config (1080p)
-   |   |-- 4kpc.json                # Sample coordinate config (4K)
-   |-- 📁 core/                       # Core verification engine
-   |   |-- verification_controller.py # Main verification engine
-   |   |-- comparison_engine.py      # Core field comparison logic
-   |   |-- ocr_provider.py          # OCR engine management
-   |   |-- settings_manager.py      # Configuration management
-   |   |-- logger_config.py         # Logging configuration
-   |-- 📁 ai/                         # AI and machine learning modules
-   |   |-- ai_verifier.py           # AI-powered verification module
-   |   |-- vlm_verifier.py          # VLM verification engine
-   |-- 📁 ui/                         # User interface modules
-   |   |-- streamlit_app.py         # Web monitoring dashboard
-   |   |-- streamlit_ai_page.py     # AI settings interface
-   |   |-- streamlit_vlm_page.py    # VLM configuration interface
-   |   |-- settings_gui.py          # GUI coordinate setup tool
-   |   |-- vlm_gui.py               # VLM visual coordinate selection GUI
-   |-- 📁 tools/                      # Testing and utility tools
-   |   |-- test_vlm.py              # VLM testing and validation script
-   |-- 📁 scripts/                    # Launcher scripts
-   |-- 📁 config_backups/            # Automatic configuration backups
-   |-- 📁 __pycache__/               # Python cache directory
-   |-- launcher.py                   # Main launcher with setup wizard
-   |-- start.bat                     # Windows batch launcher
-   |-- requirements.txt              # Python dependencies
-   |-- README.md                     # This documentation
-   |-- VLM_README.md                 # VLM-specific documentation (legacy)
-   |-- AGENTS.md                     # Development guidelines
-   |-- venv/ or .venv/              # Python virtual environment (optional)
-   ```
+### Performance Optimization
 
+#### Speed Improvements
+1. **Use GPU acceleration** when available (EasyOCR with CUDA)
+2. **Minimize screenshot regions** to essential text areas only
+3. **Enable VLM quantization** (Q4_K_M recommended)
+4. **Adjust polling intervals** based on pharmacy software speed
 
-### "Web interface won't open"
-- Try: `python -m streamlit run streamlit_app.py`
-- Check firewall isn't blocking port 8501
-- Try `http://127.0.0.1:8501` or `http://localhost:8501` instead
-- Streamlit runs on http, not https by default. Please ignore all safety warnings from your browser.
-- Try another browser or incognito mode
+#### Accuracy Tuning
+1. **Start with trigger region** - get this working first
+2. **Test each field individually** before full verification
+3. **Adjust thresholds** based on your data entry patterns
+4. **Use pharmacy-specific prompts** for AI models
+5. **Monitor logs** to identify common error patterns
 
-### "OCR not working"
+### 🎯 Success Tips
 
-🚀 **With Automatic OCR Selection**: OCR issues should be minimal! The system now automatically selects and configures the best OCR engine for your hardware.
+#### Setup Best Practices
+- **Clear screenshots**: Ensure text is clearly visible
+- **Minimal regions**: Select smallest areas containing target text
+- **Test immediately**: Verify OCR after each region selection
+- **Validate configuration**: Use built-in validation tools before monitoring
 
-
-**If you're having OCR issues:**
-
-- **Adjust Coordinates**: Use the GUI tool to ensure regions are set correctly, avoid artifacts, boxes, lines, or other distractions. Make it as small as possible.
-- **Test OCR Regions**: Use the "Test OCR" feature in the GUI to verify each region captures text correctly
-- **Test different OCR providers**: I've noticed different performance on different hardware/computer/user behavior(??). Test and pick what works best. 
-
-**Automatic Fallback System:**
-- It will try to read again if infomation is empty or not detected, retry times and interval can be configured.
-- A delay can be set to allow the system to wait for the screen to fully load before reading
-
-
----
+#### Optimization Guidelines
+- **Threshold tuning**: Adjust based on pharmacy workflow differences
+- **Prompt engineering**: Customize AI prompts for better accuracy
+- **Hardware utilization**: Use GPU when available for better performance
+- **Regular monitoring**: Check logs for patterns and improvement opportunities
 
 ## 🔒 Privacy & Security
 
-- ✅ **Completely local** - no data sent anywhere
-- ✅ **HIPAA friendly** - patient data stays on your machine  
-- ✅ **No internet required** for core functionality
-- ✅ **Open source** - you can see exactly what it does
-- ✅ **Screenshots stay on your machine**
-- ✅ **Your data never leaves your computer**
+### HIPAA Compliance Features
+- ✅ **100% Local Processing**: Patient data never leaves premises
+- ✅ **Offline Operation**: No internet required for core functionality
+- ✅ **Local AI Models**: Ollama, LlamaFile support for complete privacy
+- ✅ **Audit Trails**: Comprehensive logging for compliance requirements
+- ✅ **Open Source**: Full transparency and code auditability
 
----
+### Security Best Practices
+- **Use local AI models** for sensitive data processing
+- **Configure firewalls** to restrict external AI model access
+- **Regular backups** of configurations and logs
+- **Monitor access logs** for security audit requirements
+- **Update dependencies** regularly for security patches
 
-## 🎉 Success Tips
+## � Project Structure
 
-1. **Take clear screenshots** - make sure text is visible
-2. **Test OCR immediately** after selecting regions
-3. **Start with trigger region** - get this working first
-4. **Check validation** before running monitoring
-5. **Use the smallest area** based on your software, avoid box, line, or any other artifact that may interfere with the OCR
-6. **Adjust matching thresholds** based on your data entry habits, pharamcy may have different sig translation
-7. **Monitor logs** to fine-tune accuracy
-8. **Prompt Engineering** for better AI response
-
----
-
-## 📈 Future Improvements - My favorite part
-
-### ✅ Completed: Vision Language Model Integration
-
-**🎉 Major Milestone Achieved!** The VLM integration is now fully operational, representing a significant leap forward in prescription verification technology:
-
-- ✅ **Direct Image Analysis**: No more OCR extraction - AI sees images directly
-- ✅ **Visual GUI Configuration**: Point-and-click region selection tool
-- ✅ **Multiple Model Support**: LLaVA, Qwen2-VL, Phi-3.5-Vision compatibility
-- ✅ **Local Deployment**: Complete HIPAA compliance with on-premises processing
-- ✅ **Seamless Integration**: Easy switching between OCR and VLM modes
-- ✅ **Superior Handwriting Support**: Handles complex layouts and handwritten prescriptions
-
-### 🚀 Next Phase: Advanced Architecture Evolution
-
-#### Phase 1: Enhanced VLM Capabilities (In Progress)
-- **Multi-Model Ensemble**: Combine multiple VLM models for consensus-based verification
-- **Custom Prompt Engineering**: Pharmacy-specific prompt templates for better accuracy
-- **Adaptive Region Detection**: Automatic region detection using computer vision
-- **Confidence Calibration**: Fine-tuned confidence scoring based on real-world data
-
-#### Phase 2: Centralized Processing Hub
-Building on the successful VLM foundation, the next evolution involves centralized architecture:
-
-**Central Processing Hub Vision:**
-- **One Powerful Machine**: A dedicated high-performance computer with enterprise-grade GPU serving multiple pharmacy locations
-- **VLM-Powered Backend**: Centralized VLM processing with specialized pharmacy models
-- **Network-Based Service**: All pharmacies connect to the central hub for processing
-- **Scalable Architecture**: One central system handling dozens of pharmacy workstations simultaneously
-
-#### Phase 3: Advanced AI Integration
-- **Custom VLM Training**: Fine-tune models specifically on pharmacy data
-- **Semantic Drug Matching**: Replace string matching with AI-powered semantic understanding
-- **Contextual Analysis**: Full prescription context analysis beyond individual fields
-- **Predictive Error Detection**: AI predicts likely errors before they occur
-
-#### Phase 4: Enterprise Intelligence
-- **Multi-Pharmacy Analytics**: Aggregated insights across pharmacy networks
-- **Pattern Recognition**: Identify common error patterns and improvement opportunities
-- **Automated Quality Assurance**: Continuous model improvement based on verification outcomes
-- **Regulatory Compliance**: Enhanced audit trails and compliance reporting
-
-**Why This Centralized Approach:**
-- **Cost Efficiency**: One powerful VLM server replaces dozens of individual installations
-- **Performance**: Enterprise-grade GPU processing delivers consistent high-speed verification
-- **Model Management**: Centralized model updates and improvements
-- **Scalability**: Easy addition of new pharmacy locations
-- **Specialized Models**: Deploy pharmacy-specific VLM models optimized for prescription verification
-
-### 🌟 Current Achievement Impact
-
-The VLM integration represents a paradigm shift from traditional OCR-based systems:
-
-**Before VLM**: Text extraction → String matching → Verification
-**After VLM**: Image → AI Vision Analysis → Semantic Verification
-
-This advancement opens possibilities for:
-- **Handwritten Prescription Support**: Previously impossible with OCR
-- **Layout-Independent Processing**: Works with any prescription format
-- **Contextual Understanding**: AI understands medication context and relationships
-- **Reduced Setup Complexity**: Visual region selection instead of precise coordinate tuning
-
-*The VLM integration proves that AI-powered pharmacy automation is not just feasible but highly effective. This foundation enables the next phase of centralized, enterprise-scale prescription verification systems.*
-
----
-
-## 📁 Project Organization
-
-### Organized Folder Structure
-
-The project has been reorganized into logical modules for better maintainability and easier development:
-
+### File Organization
 ```
 📁 HayatPrecheck/
 ├── 🚀 launcher.py              # Main entry point - start here!
 ├── 📄 requirements.txt         # Dependencies
 ├── 📖 README.md               # This documentation
-├── 📁 config/                 # All configuration files
+├── 📁 config/                 # Configuration files
+│   ├── config.json           # Main application settings
+│   ├── vlm_config.json       # VLM model configuration
+│   ├── llm_config.json       # AI/LLM settings
+│   └── abbreviations.json    # Pharmacy abbreviations
 ├── 📁 core/                   # Core verification engine
-├── 📁 ai/                     # AI and VLM modules  
-├── 📁 ui/                     # User interfaces (Streamlit + GUI)
-├── 📁 tools/                  # Testing and utilities
-└── 📁 scripts/                # Launcher scripts
+│   ├── verification_controller.py  # Main verification logic
+│   ├── comparison_engine.py        # Field comparison algorithms
+│   └── ocr_provider.py             # OCR engine management
+├── 📁 ai/                     # AI and ML modules
+│   ├── vlm_verifier.py       # Vision Language Model engine
+│   └── ai_verifier.py        # AI-powered text verification
+├── 📁 ui/                     # User interfaces
+│   ├── streamlit_app.py      # Main web dashboard
+│   ├── settings_gui.py       # GUI coordinate setup
+│   └── vlm_gui.py           # VLM visual configuration
+└── 📁 tools/                  # Testing and utilities
+    └── test_vlm.py          # VLM testing script
 ```
 
-### 🎯 Quick Access
+### Quick Access Points
 
-**For Users:**
-- **Start Here**: `python launcher.py` - Main launcher with setup wizard
-- **Web Interface**: `streamlit run ui/streamlit_app.py` - Browser-based control
-- **VLM Setup**: `python ui/vlm_gui.py` - Visual coordinate selection
+**🚀 Getting Started:**
+- **Main Launcher**: `python launcher.py`
+- **Web Dashboard**: `streamlit run ui/streamlit_app.py`
+- **Coordinate Setup**: `python ui/settings_gui.py`
 
-**For Developers:**
-- **Core Engine**: `core/` - Main verification logic
-- **AI Integration**: `ai/` - AI and VLM components
-- **Configuration**: `config/` - All settings and coordinate files
+**🔧 Configuration:**
+- **General Settings**: `config/config.json`
+- **VLM Setup**: `config/vlm_config.json` + `ui/vlm_gui.py`
+- **AI Configuration**: `config/llm_config.json`
 
-### 🔧 Module Responsibilities
+**🧪 Testing:**
+- **VLM Testing**: `python tools/test_vlm.py`
+- **OCR Testing**: Built into GUI tools
+- **Full System Test**: Use launcher's test mode
 
-| Module | Purpose | Key Files |
-|--------|---------|-----------|
-| **config/** | Settings & coordinates | config.json, vlm_config.json, abbreviations.json |
-| **core/** | Verification engine | verification_controller.py, comparison_engine.py |
-| **ai/** | AI & vision models | ai_verifier.py, vlm_verifier.py |
-| **ui/** | User interfaces | streamlit_app.py, settings_gui.py, vlm_gui.py |
-| **tools/** | Testing & utilities | test_vlm.py |
+## 🚀 Future Development Roadmap
 
-This organization makes the codebase more maintainable, easier to navigate, and better prepared for future enhancements.
+### ✅ Completed Milestones
 
----
+**Vision Language Model Integration (2025)**
+- Direct image analysis without OCR extraction
+- Multi-step AI verification with confidence scoring
+- Visual coordinate selection tools
+- Local deployment for HIPAA compliance
+
+### � Next Phase: Advanced AI Architecture
+
+#### Phase 1: Enhanced Intelligence (Q1 2026)
+- **Multi-Model Ensemble**: Consensus-based verification using multiple AI models
+- **Custom Pharmacy Training**: Fine-tuned models for prescription-specific accuracy
+- **Adaptive Region Detection**: Computer vision for automatic coordinate setup
+- **Predictive Error Analysis**: AI-powered error pattern recognition
+
+#### Phase 2: Enterprise Scalability (Q2-Q3 2026)
+- **Centralized Processing Hub**: Single powerful server serving multiple pharmacies
+- **Network Architecture**: Secure, scalable multi-location deployment
+- **Advanced Analytics**: Cross-pharmacy insights and quality metrics
+- **Regulatory Compliance**: Enhanced audit trails and reporting tools
+
+#### Phase 3: Next-Generation Features (Q4 2026+)
+- **Full Prescription Analysis**: Complete document understanding beyond field verification
+- **Contextual Intelligence**: Drug interaction and dosage validation integration
+- **Mobile Integration**: Tablet and smartphone verification capabilities
+- **Cloud-Hybrid Options**: Secure cloud processing with local fallback
+
+### 🌟 Technology Evolution
+
+**Current State**: OCR → AI Analysis → Verification  
+**Future Vision**: Image → Multi-AI Consensus → Clinical Intelligence → Automated Quality Assurance
+
+### Contributing & Development
+
+This project represents the cutting edge of pharmacy automation technology. The modular architecture makes it easy to extend and customize for specific pharmacy workflows.
+
+**Development Priorities:**
+1. **AI Model Optimization**: Improving accuracy and reducing resource requirements
+2. **User Experience**: Streamlined setup and configuration processes  
+3. **Scalability**: Enterprise deployment and multi-location support
+4. **Integration**: APIs and connectors for popular pharmacy management systems
+
+*The future of pharmacy verification is AI-powered, and this project is leading the transformation.*
