@@ -36,7 +36,7 @@ import logging
 class SettingsManager:
     """Unified settings management for the pharmacy verification system"""
     
-    def __init__(self, config_file: str = "config.json", vlm_config_file: Optional[str] = None, llm_config_file: Optional[str] = None):
+    def __init__(self, config_file: str = "config/config.json", vlm_config_file: Optional[str] = None, llm_config_file: Optional[str] = None):
         self.config_file = config_file
         self.vlm_config_file = vlm_config_file or os.path.join("config", "vlm_config.json")
         self.llm_config_file = llm_config_file or os.path.join("config", "llm_config.json")
@@ -567,14 +567,14 @@ class SettingsManager:
             return False
 
 # Convenience functions for backward compatibility
-def load_config(config_file: str = "config.json") -> Optional[Dict[str, Any]]:
+def load_config(config_file: str = "config/config.json") -> Optional[Dict[str, Any]]:
     """Load configuration (standalone function)"""
     manager = SettingsManager(config_file)
     if manager.load_config():
         return manager.config
     return None
 
-def save_config(config: Dict[str, Any], config_file: str = "config.json") -> bool:
+def save_config(config: Dict[str, Any], config_file: str = "config/config.json") -> bool:
     """Save configuration (standalone function)"""
     manager = SettingsManager(config_file)
     manager.config = config

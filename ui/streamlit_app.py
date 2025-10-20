@@ -85,9 +85,22 @@ class SimplePharmacyApp:
         return False
 
     def coordinate_setup_page(self):
-        """Launch the existing GUI for coordinate setup"""
-        st.title("⚙️ Settings")
+        """GUI Settings page with Launch GUI at top"""
+        st.title("⚙️ GUI Settings")
+        
+        # Launch Settings GUI at the top (most important action)
+        st.subheader("🚀 Launch Settings GUI")
         st.info("🎯 **Use the proven GUI tool for easy coordinate setup**")
+        
+        if st.button("🔧 Open Coordinate Setup Tool", type="primary"):
+            try:
+                subprocess.run([sys.executable, "ui/settings_gui.py"], cwd=os.getcwd())
+                st.success("✅ Settings GUI launched successfully!")
+            except Exception as e:
+                st.error(f"❌ Failed to launch GUI: {e}")
+                st.info("💡 Try running manually: `python ui/settings_gui.py`")
+        
+        st.markdown("---")
         
         if not self.config:
             st.error("Configuration not loaded!")
@@ -178,16 +191,6 @@ class SimplePharmacyApp:
         # OCR Engine Settings
         self.show_ocr_engine_settings()
         
-        st.markdown("---")
-        
-        # Score Threshold Settings
-        self.show_threshold_settings()
-
-        st.markdown("---")
-        
-        # Verification Method Settings
-        self.show_verification_method_settings()
-
         st.markdown("---")
         
         # Trigger Detection Settings
@@ -349,13 +352,15 @@ class SimplePharmacyApp:
         # Get current OCR provider
         current_provider = self.config.get("ocr_provider", "tesseract")
         
-        st.info("💡 **OCR Engine Selection:** Choose the best OCR engine for your performance and accuracy needs.")
+        st.info("💡 **Global OCR Engine:** This setting applies to ALL verification methods (Local OCR, LLM AI, etc.). Choose the best OCR engine for your CPU performance needs.")
         
         # Display OCR engine information
         engine_info = {
-            "auto": {"name": "Auto (Recommended)", "speed": "Optimal", "accuracy": "95%", "description": "Smart GPU detection, best performance"},
-            "easyocr": {"name": "EasyOCR", "speed": "Good", "accuracy": "90%", "description": "High accuracy, GPU-accelerated"},
-            "tesseract": {"name": "Tesseract", "speed": "Fast", "accuracy": "85%", "description": "CPU-optimized, very reliable"}
+            "auto": {"name": "Auto (Recommended)", "speed": "Optimal", "accuracy": "95%", "description": "Smart selection based on available hardware"},
+            "rapidocr": {"name": "RapidOCR", "speed": "Very Fast", "accuracy": "88%", "description": "Fastest CPU performance, lightweight"},
+            "easyocr": {"name": "EasyOCR", "speed": "Good", "accuracy": "92%", "description": "High accuracy, GPU-accelerated"},
+            "tesseract": {"name": "Tesseract", "speed": "Fast", "accuracy": "85%", "description": "CPU-optimized, widely compatible"},
+            "paddleocr": {"name": "PaddleOCR", "speed": "Good", "accuracy": "89%", "description": "Comprehensive text detection, CPU optimized"}
         }
         
         # Create OCR engine selection
@@ -387,7 +392,14 @@ class SimplePharmacyApp:
                     st.write(f"{info['speed']}, {info['accuracy']}")
                 
                 if not is_available:
-                    st.caption(f"   💡 Install with: `pip install {engine_key}{'pytesseract (also requires Tesseract binary)' if engine_key == 'tesseract' else ''}`")
+                    install_commands = {
+                        "easyocr": "pip install easyocr",
+                        "tesseract": "pip install pytesseract (also requires Tesseract binary)",
+                        "rapidocr": "pip install rapidocr-onnxruntime",
+                        "paddleocr": "pip install paddlepaddle paddleocr"
+                    }
+                    cmd = install_commands.get(engine_key, f"pip install {engine_key}")
+                    st.caption(f"   💡 Install with: `{cmd}`")
         
         with col2:
             st.write("**Select OCR Engine:**")
@@ -440,12 +452,18 @@ class SimplePharmacyApp:
                 self.show_easyocr_settings()
             elif current_provider == "tesseract":
                 self.show_tesseract_settings()
+            elif current_provider == "rapidocr":
+                self.show_rapidocr_settings()
+            elif current_provider == "paddleocr":
+                self.show_paddleocr_settings()
     
     def check_available_ocr_engines(self):
         """Check which OCR engines are available"""
         engines = {
             'easyocr': False,
-            'tesseract': False
+            'tesseract': False,
+            'rapidocr': False,
+            'paddleocr': False
         }
         
         # Check EasyOCR
@@ -459,6 +477,20 @@ class SimplePharmacyApp:
         try:
             import pytesseract
             engines['tesseract'] = True
+        except ImportError:
+            pass
+        
+        # Check RapidOCR
+        try:
+            import rapidocr_onnxruntime
+            engines['rapidocr'] = True
+        except ImportError:
+            pass
+        
+        # Check PaddleOCR
+        try:
+            import paddleocr
+            engines['paddleocr'] = True
         except ImportError:
             pass
         
@@ -537,6 +569,113 @@ class SimplePharmacyApp:
             st.rerun()
         except Exception as e:
             st.error(f"❌ Failed to save settings: {e}")
+    
+    def show_rapidocr_settings(self):
+        """Show RapidOCR-specific settings"""
+        rapidocr_config = self.config.get("rapidocr", {})
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            text_score = st.slider(
+                "🎯 Text confidence threshold",
+                min_value=0.1,
+                max_value=1.0,
+                value=rapidocr_config.get("text_score", 0.5),
+                step=0.1,
+                help="Minimum confidence score for text detection"
+            )
+        
+        with col2:
+            confidence_threshold = st.slider(
+                "📊 Result confidence threshold",
+                min_value=0.1,
+                max_value=1.0,
+                value=rapidocr_config.get("confidence_threshold", 0.5),
+                step=0.1,
+                help="Minimum confidence for final OCR results"
+            )
+        
+        use_angle_cls = st.checkbox(
+            "🔄 Use text angle classification",
+            value=rapidocr_config.get("use_angle_cls", True),
+            help="Enable text rotation detection and correction"
+        )
+        
+        use_text_det = st.checkbox(
+            "🔍 Use text detection",
+            value=rapidocr_config.get("use_text_det", True),
+            help="Enable text region detection"
+        )
+        
+        # Update settings if changed
+        new_rapidocr_config = {
+            "text_score": text_score,
+            "confidence_threshold": confidence_threshold,
+            "use_angle_cls": use_angle_cls,
+            "use_text_det": use_text_det
+        }
+        
+        if new_rapidocr_config != rapidocr_config:
+            self.config["rapidocr"] = new_rapidocr_config
+            self.save_config_changes()
+    
+    def show_paddleocr_settings(self):
+        """Show PaddleOCR-specific settings"""
+        paddleocr_config = self.config.get("paddleocr", {})
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            use_gpu = st.checkbox(
+                "🚀 Use GPU acceleration",
+                value=paddleocr_config.get("use_gpu", False),
+                help="Enable GPU acceleration (requires CUDA-compatible GPU)"
+            )
+        
+        with col2:
+            confidence_threshold = st.slider(
+                "🎯 Confidence threshold",
+                min_value=0.1,
+                max_value=1.0,
+                value=paddleocr_config.get("confidence_threshold", 0.5),
+                step=0.1,
+                help="Minimum confidence score for OCR results"
+            )
+        
+        use_angle_cls = st.checkbox(
+            "🔄 Use text angle classification",
+            value=paddleocr_config.get("use_angle_cls", True),
+            help="Enable text rotation detection and correction"
+        )
+        
+        show_log = st.checkbox(
+            "📝 Show PaddleOCR logs",
+            value=paddleocr_config.get("show_log", False),
+            help="Display PaddleOCR internal logging messages"
+        )
+        
+        lang_options = ['en', 'ch', 'ta', 'te', 'ka', 'ja', 'ko']
+        current_lang = paddleocr_config.get("lang", "en")
+        lang = st.selectbox(
+            "🌐 Language",
+            options=lang_options,
+            index=lang_options.index(current_lang) if current_lang in lang_options else 0,
+            help="Primary language for OCR recognition"
+        )
+        
+        # Update settings if changed
+        new_paddleocr_config = {
+            "use_gpu": use_gpu,
+            "confidence_threshold": confidence_threshold,
+            "use_angle_cls": use_angle_cls,
+            "show_log": show_log,
+            "lang": lang
+        }
+        
+        if new_paddleocr_config != paddleocr_config:
+            self.config["paddleocr"] = new_paddleocr_config
+            self.save_config_changes()
 
     def show_trigger_detection_settings(self):
         """Display and allow editing of trigger detection settings"""
@@ -824,7 +963,13 @@ class SimplePharmacyApp:
 
     def monitoring_page(self):
         """Display the monitoring/logging page with live OCR and scores"""
-        st.title("📊 Pharmacy Verification Monitor")
+        st.title("🏠 Pharmacy Verification - Main Dashboard")
+
+        # Verification Method Selection
+        st.subheader("🔧 Verification Method")
+        self.show_verification_method_selection()
+        
+        st.markdown("---")
 
         # Controls at the top
         c1, c2, c3 = st.columns([1, 1, 2])
@@ -835,19 +980,18 @@ class SimplePharmacyApp:
             if st.button("🔴 Stop Monitoring", disabled=not st.session_state.verification_running):
                 self.stop_verification()
         with c3:
-            status_color = "�" if st.session_state.verification_running else "🔴"
+            status_color = "🟢" if st.session_state.verification_running else "🔴"
             status_text = "Running" if st.session_state.verification_running else "Stopped"
             st.markdown(f"**Status:** {status_color} {status_text}")
 
         st.markdown("---")
 
-        # Verification method selection (single-line selector only)
-        self.show_verification_method_selection()
-
-        st.markdown("---")
-
         # Automation settings (kept as-is)
         self.show_automation_settings()
+
+        # Score threshold settings (moved from GUI settings page)
+        with st.expander("🎯 Score Thresholds", expanded=False):
+            self.show_threshold_settings()
 
         # Timing settings hidden by default in an expander
         with st.expander("⏱️ Timing Settings (advanced)", expanded=False):
@@ -858,18 +1002,26 @@ class SimplePharmacyApp:
             self.show_live_terminal_output()
 
     def show_verification_method_selection(self):
-        """Show verification method selection (OCR vs VLM) as a single select line."""
+        """Show verification method selection with 3 options: Local OCR+Fuzzy, LLM AI, and VLM AI."""
         if not self.config:
             return
 
-        # Current method and options
-        current_method = self.config.get("verification_mode", "ocr")
+        # Handle legacy configuration
+        current_method = self.config.get("verification_method", "local_ocr_fuzzy")
+        if "verification_mode" in self.config and "verification_method" not in self.config:
+            legacy_mode = self.config.get("verification_mode", "ocr")
+            current_method = "vlm_ai" if legacy_mode == "vlm" else "local_ocr_fuzzy"
+
+        # Method options with descriptions
         method_options = [
-            ("ocr", "🔤 OCR + Text Comparison"),
-            ("vlm", "👁️ Vision Language Model")
+            ("local_ocr_fuzzy", "� Local OCR + Fuzzy Matching", "Multiple small OCR areas + CPU-based text comparison"),
+            ("llm_ai", "🤖 LLM AI (OCR + LLM)", "2 large OCR areas + LLM comparison (requires LLM API)"),
+            ("vlm_ai", "👁️ VLM AI (Direct Vision)", "Direct image analysis with Vision Language Model (no OCR)")
         ]
-        method_values = [value for value, _ in method_options]
-        method_labels = {value: label for value, label in method_options}
+        
+        method_values = [value for value, _, _ in method_options]
+        method_labels = {value: f"{label}" for value, label, _ in method_options}
+        method_descriptions = {value: desc for value, _, desc in method_options}
 
         try:
             current_index = method_values.index(current_method)
@@ -881,17 +1033,75 @@ class SimplePharmacyApp:
             options=method_values,
             format_func=lambda x: method_labels[x],
             index=current_index,
+            help="Choose how prescription fields are verified"
         )
 
-        # Save without extra UI noise
+        # Show description of selected method
+        if selected_method in method_descriptions:
+            st.info(f"📝 **{method_labels[selected_method]}**: {method_descriptions[selected_method]}")
+
+        # Show method-specific requirements and configuration hints
+        self._show_method_requirements(selected_method)
+
+        # Save configuration
         if selected_method != current_method:
-            self.config["verification_mode"] = selected_method
+            self.config["verification_method"] = selected_method
+            # Clean up legacy configuration
+            if "verification_mode" in self.config:
+                del self.config["verification_mode"]
             try:
                 self.settings_manager.config = self.config
                 self.settings_manager.save_config(create_backup=True)
+                st.success("✅ Verification method updated!")
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Failed to save verification method: {e}")
+
+    def _show_method_requirements(self, method: str):
+        """Show requirements and configuration hints for selected verification method."""
+        if method == "local_ocr_fuzzy":
+            st.success("✅ **Ready to use** - All required components available")
+            st.info("💡 **Setup**: Configure individual field regions using the Settings GUI")
+            
+        elif method == "llm_ai":
+            # Check if LLM config exists
+            llm_config_exists = os.path.exists("config/llm_config.json")
+            vlm_regions_exist = bool(self.config.get("llm_regions") or self.config.get("vlm_regions"))
+            
+            if llm_config_exists and vlm_regions_exist:
+                st.success("✅ **Ready to use** - LLM configuration and regions found")
+            else:
+                st.warning("⚠️ **Configuration required**:")
+                if not llm_config_exists:
+                    st.write("• Configure LLM API settings in **AI Settings** page")
+                if not vlm_regions_exist:
+                    st.write("• Set up 2 large OCR regions using **VLM Settings** page")
+            
+            st.info("💡 **Best for**: When you want AI-powered comparison but have limited GPU/VLM resources")
+            
+        elif method == "vlm_ai":
+            # Check if VLM config exists
+            vlm_config_exists = os.path.exists("config/vlm_config.json")
+            vlm_regions_exist = bool(self.config.get("vlm_regions")) if self.config else False
+            
+            if vlm_config_exists and not vlm_regions_exist:
+                try:
+                    with open("config/vlm_config.json", 'r') as f:
+                        vlm_config = json.load(f)
+                    vlm_regions_exist = bool(vlm_config.get("vlm_regions"))
+                except Exception:
+                    pass
+            
+            if vlm_config_exists and vlm_regions_exist:
+                st.success("✅ **Ready to use** - VLM configuration and regions found")
+            else:
+                st.warning("⚠️ **Configuration required**:")
+                if not vlm_config_exists:
+                    st.write("• Configure VLM API settings in **VLM Settings** page")
+                if not vlm_regions_exist:
+                    st.write("• Set up 2 image regions using **VLM Settings** page")
+                    
+            st.info("💡 **Best for**: Highest accuracy, especially with handwritten prescriptions")
 
     def show_automation_settings(self):
         """Display automation settings section"""
@@ -1286,7 +1496,7 @@ class SimplePharmacyApp:
         
         page = st.sidebar.selectbox(
             "Navigate to:",
-            ["📊 Monitor & Logs", "⚙️ Settings - GUI", "🧠 AI Configuration", "👁️ VLM Configuration"]
+            ["🏠 Main/Home", "⚙️ Settings - GUI", "🧠 AI Configuration", "👁️ VLM Configuration"]
         )
         
         st.sidebar.markdown("---")
@@ -1298,7 +1508,7 @@ class SimplePharmacyApp:
             st.sidebar.error("❌ Configuration not loaded")
         
         # Main content based on selected page
-        if page == "📊 Monitor & Logs":
+        if page == "🏠 Main/Home":
             self.monitoring_page()
         elif page == "⚙️ Settings - GUI":
             self.coordinate_setup_page()
@@ -1307,7 +1517,6 @@ class SimplePharmacyApp:
         elif page == "👁️ VLM Configuration":
             self.vlm_config_page()
 
-        st.sidebar.info("🚀 OCR engine is pre-loading in the background...")
 
 def main():
     """Main application entry point"""

@@ -42,7 +42,9 @@ class AI_Verifier:
             # Strategy 1: Try direct JSON parsing first
             try:
                 cleaned = response_content.strip()
-                return json.loads(cleaned)
+                parsed_json = json.loads(cleaned)
+                # Normalize field names if they have _score suffix
+                return self._normalize_field_names(parsed_json)
             except json.JSONDecodeError:
                 pass
             
@@ -51,7 +53,8 @@ class AI_Verifier:
                 try:
                     json_str = response_content.split("```json")[1].split("```")[0].strip()
                     logging.debug(f"{context}: Extracted from markdown: {json_str}")
-                    return json.loads(json_str)
+                    parsed_json = json.loads(json_str)
+                    return self._normalize_field_names(parsed_json)
                 except (json.JSONDecodeError, IndexError):
                     pass
             
@@ -62,7 +65,8 @@ class AI_Verifier:
                 if start >= 0 and end > start:
                     json_str = response_content[start:end]
                     logging.debug(f"{context}: Extracted by boundaries: {json_str}")
-                    return json.loads(json_str)
+                    parsed_json = json.loads(json_str)
+                    return self._normalize_field_names(parsed_json)
             except (json.JSONDecodeError, ValueError):
                 pass
             
@@ -83,7 +87,8 @@ class AI_Verifier:
                     json_str = re.sub(r',\s*]', ']', json_str)  # Remove trailing commas in arrays
                     
                     logging.debug(f"{context}: Cleaned JSON: {json_str}")
-                    return json.loads(json_str)
+                    parsed_json = json.loads(json_str)
+                    return self._normalize_field_names(parsed_json)
             except (json.JSONDecodeError, ValueError):
                 pass
             
@@ -102,6 +107,11 @@ class AI_Verifier:
                     matches = re.findall(pattern, response_content, re.IGNORECASE)
                     for field, value in matches:
                         field = field.strip().lower().replace(" ", "_")
+                        
+                        # Remove _score suffix if present
+                        if field.endswith("_score"):
+                            field = field[:-6]
+                        
                         # Map common field variations
                         field_mapping = {
                             'patient_name': 'patient_name',
@@ -138,6 +148,66 @@ class AI_Verifier:
             logging.error(f"{context}: JSON parsing error: {e}")
             logging.debug(f"{context}: Problematic content: {response_content}")
             return {}
+
+    def _normalize_field_names(self, parsed_json):
+        """
+        Normalize field names by removing _score suffix and mapping to expected field names.
+        
+        This handles LLM responses that use field names like "patient_name_score" instead of "patient_name".
+        
+        Args:
+            parsed_json: Dictionary with field names that may have _score suffix
+            
+        Returns:
+            Dictionary with normalized field names
+        """
+        if not isinstance(parsed_json, dict):
+            return parsed_json
+        
+        normalized = {}
+        
+        # Field name mapping to handle various LLM response formats
+        field_mapping = {
+            "patient_name_score": "patient_name",
+            "prescriber_name_score": "prescriber_name", 
+            "drug_name_score": "drug_name",
+            "directions_score": "direction_sig",
+            "direction_sig_score": "direction_sig",
+            "sig_score": "direction_sig",
+            # Also handle without _score suffix (direct mapping)
+            "patient_name": "patient_name",
+            "prescriber_name": "prescriber_name",
+            "drug_name": "drug_name",
+            "direction_sig": "direction_sig",
+            "directions": "direction_sig",
+            "sig": "direction_sig",
+            # Handle some other variations that might appear
+            "address_score": "address",
+            "dob_score": "dob", 
+            "quantity_score": "quantity",
+            "refills_score": "refills"
+        }
+        
+        for key, value in parsed_json.items():
+            # Try direct mapping first
+            normalized_key = field_mapping.get(key)
+            
+            if normalized_key:
+                normalized[normalized_key] = value
+                logging.debug(f"LLM: Mapped field '{key}' -> '{normalized_key}' with score {value}")
+            else:
+                # Try removing _score suffix for unmapped fields
+                if key.endswith("_score"):
+                    base_key = key[:-6]  # Remove "_score"
+                    normalized[base_key] = value
+                    logging.debug(f"LLM: Normalized field '{key}' -> '{base_key}' with score {value}")
+                else:
+                    # Keep as-is for unknown fields
+                    normalized[key] = value
+                    logging.debug(f"LLM: Kept field '{key}' as-is with score {value}")
+        
+        logging.info(f"LLM: Field normalization - Input fields: {list(parsed_json.keys())} -> Output fields: {list(normalized.keys())}")
+        return normalized
 
     def verify_with_ai(self, field_to_verify, ocr_results):
         """
@@ -203,8 +273,10 @@ class AI_Verifier:
             scores = self._robust_json_parse(response_content, "LLM")
             
             if scores:
+                logging.info(f"LLM: Parsed scores from response: {scores}")
                 # Validate scores against empty fields with strict missing data checks
                 validated_scores = self._validate_ai_scores_strict(scores, ocr_results)
+                logging.info(f"LLM: Validated scores: {validated_scores}")
                 return validated_scores
             
             # Complete fallback - return 0 for all fields

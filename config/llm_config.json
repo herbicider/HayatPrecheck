@@ -1,11 +1,102 @@
 {
-  "llm_config": {
-    "base_url": "http://192.168.100.187:8081",
-    "model_name": "",
-    "api_key": "",
-    "max_tokens": 500,
-    "temperature": 0.1,
-    "system_prompt": "You are a pharmacist verifying prescription data entry accuracy. CRITICAL: Respond with ONLY valid JSON. No explanations, no markdown, no extra text. Use whole numbers only (0-100).\n\nVerification Rules:\n1. Verify entered vs source text for accuracy and equivalency\n2. Account for OCR artifacts and common transcription errors\n3. Give equivalency score for drugs (brand name = generic)\n4. Matching one of the source prescribers (if there are 2, separated by '/') is a match\n5. Use semantic analysis for directions - focus on meaning, not exact wording\n6. Consider pharmacy abbreviations and medical terminology\n7. If entered data exists but source is empty/missing -> Score = 0\n8. If source data exists but entered is empty/missing -> Score = 0\n\nSCORING GUIDELINES:\n- 95-100: Perfect/near perfect match\n- 85-94: Very good match with minor differences\n- 75-84: Good match, acceptable differences  \n- 60-74: Questionable match, needs review\n- 0-59: Poor match, significant discrepancies, or missing data",
-    "user_prompt": "Compare the following prescription fields for accuracy:\n\nPatient Name:\nEntered: {patient_name_entered}\nSource: {patient_name_source}\n\nPrescriber Name:\nEntered: {prescriber_name_entered}\nSource: {prescriber_name_source}\n\nDrug Name:\nEntered: {drug_name_entered}\nSource: {drug_name_source}\n\nDirections/Sig:\nEntered: {direction_sig_entered}\nSource: {direction_sig_source}\n\nProvide accuracy scores for each field. Your response must be EXACTLY this JSON format with no additional text:\n{\n  \"patient_name\": 85,\n  \"prescriber_name\": 90,\n  \"drug_name\": 95,\n  \"direction_sig\": 80\n}"
-  }
+    "llm_config": {
+        "base_url": "http://10.147.17.98:1234/v1",
+        "model_name": "",
+        "api_key": "",
+        "max_tokens": 500,
+        "temperature": 0.1,
+        "system_prompt": "You are a pharmacist verifying prescription data entry accuracy. You will receive structured entered data and RAW OCR text from prescription sources (handwritten/printed). CRITICAL: Respond with ONLY valid JSON in this EXACT format:\n\n{\"patient_name_score\": 85, \"prescriber_name_score\": 90, \"drug_name_score\": 95, \"direction_sig_score\": 80}\n\nUse whole numbers only (0-100). NO explanations, NO markdown, NO extra text.\n\n**YOUR INTELLIGENCE TASK**: The source field contains FULL OCR TEXT from prescriptions. You must:\n- EXTRACT the relevant field data from the raw OCR text\n- COMPARE it against the structured entered data\n- ACCOUNT for different prescription formats (handwritten, printed, electronic)\n- HANDLE incomplete OCR, artifacts, and transcription errors\n\nVerification Rules:\n1. ALWAYS provide scores for all 4 fields, even if empty\n2. If entered data exists but you find no matching info in source OCR -> Score = 0\n3. If you find source data but entered is empty/missing -> Score = 0\n4. If both entered and source are empty -> Score = 0\n5. **SMART EXTRACTION**: Look for patient names, prescriber names with credentials, drug names with dosages, and instruction patterns in the raw OCR\n6. **OCR TOLERANCE**: Account for OCR artifacts, misspellings, formatting issues\n7. **DRUG EQUIVALENCY**: Brand name = generic name (e.g., 'Tylenol' = 'Acetaminophen')\n8. **MULTIPLE PRESCRIBERS**: If OCR contains multiple prescribers, match against any of them\n9. **SEMANTIC DIRECTIONS**: Focus on meaning for instructions, not exact wording\n10. **NAME ORDER FLEXIBILITY**: 'John Smith' = 'Smith John' = 'Smith, John' = 'Smith. John. M.D.'\n11. **CREDENTIAL VARIATIONS**: 'M.D.' = 'MD' = 'Dr.' = same person\n12. **PRESCRIPTION PATTERNS**: Look for 'Written By:', 'Patient:', 'Item:', 'Directions:' in OCR text\n\nSCORING GUIDELINES:\n- 95-100: Perfect/near perfect match found in OCR\n- 85-94: Very good match with minor OCR artifacts\n- 75-84: Good match, acceptable formatting differences\n- 60-74: Questionable match, needs review\n- 0-59: Poor match, not found in OCR, or major discrepancies",
+        "user_prompt": "Verify prescription data entry against raw OCR text:\n\n=== FIELD VERIFICATION ===\n\nPatient Name:\nEntered: {patient_name_entered}\nRaw OCR Source: {patient_name_source}\n\nPrescriber Name:\nEntered: {prescriber_name_entered}\nRaw OCR Source: {prescriber_name_source}\n\nDrug Name:\nEntered: {drug_name_entered}\nRaw OCR Source: {drug_name_source}\n\nDirections/Sig:\nEntered: {direction_sig_entered}\nRaw OCR Source: {direction_sig_source}\n\nExtract relevant field information from the raw OCR text and compare against entered data. Return JSON scores."
+    },
+    "field_extraction_patterns": {
+        "patient_name": {
+            "primary_patterns": [
+                "Patient:",
+                "patient:",
+                "Patient Name:",
+                "patient name:",
+                "Name:",
+                "name:"
+            ],
+            "fallback_patterns": [
+                "pt:",
+                "PT:",
+                "Pt Name:"
+            ],
+            "description": "Patterns to identify patient name in OCR text"
+        },
+        "prescriber_name": {
+            "primary_patterns": [
+                "Written By",
+                "written by",
+                "Written By.",
+                "written by.",
+                "Issued By",
+                "issued by",
+                "Issued By.",
+                "issued by.",
+                "Prescriber",
+                "prescriber",
+                "Prescriber:",
+                "prescriber:",
+                "Doctor",
+                "doctor"
+            ],
+            "fallback_patterns": [
+                "Dr.",
+                "dr.",
+                "Physician",
+                "physician",
+                "MD",
+                "Supervisor",
+                "supervisor",
+                "Signed electronically by",
+                "signed electronically by"
+            ],
+            "description": "Patterns to identify prescriber name in OCR text"
+        },
+        "drug_name": {
+            "primary_patterns": [
+                "Item:",
+                "item:",
+                "Medication:",
+                "medication:",
+                "Drug:",
+                "drug:",
+                "Med:",
+                "med:"
+            ],
+            "fallback_patterns": [
+                "Rx:",
+                "rx:",
+                "Medicine:",
+                "medicine:",
+                "Prescribed:",
+                "prescribed:"
+            ],
+            "description": "Patterns to identify drug name in OCR text"
+        },
+        "direction_sig": {
+            "primary_patterns": [
+                "Directions:",
+                "directions:",
+                "Directions (Sig Codes or Text or Literal Text ):",
+                "Sig:",
+                "sig:",
+                "Instructions:",
+                "instructions:"
+            ],
+            "fallback_patterns": [
+                "Take:",
+                "take:",
+                "Use:",
+                "use:",
+                "Apply:",
+                "apply:",
+                "How to use:",
+                "how to use:"
+            ],
+            "description": "Patterns to identify directions/sig in OCR text"
+        }
+    }
 }

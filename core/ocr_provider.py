@@ -9,7 +9,11 @@ import sys
 import time
 import logging
 import re
+import warnings
 from typing import Tuple, Dict, Any
+
+# Suppress PyTorch DataLoader pin_memory warning when no GPU is available
+warnings.filterwarnings("ignore", message=".*pin_memory.*no accelerator is found.*", category=UserWarning)
 
 from core.logger_config import log_ocr_performance
 
@@ -46,13 +50,19 @@ def auto_select_ocr_provider():
     available_providers = check_ocr_availability()
     gpu_available = check_gpu_availability()
     
-    # Decision logic: EasyOCR with GPU > Tesseract > EasyOCR without GPU
-    if gpu_available and "easyocr" in available_providers:
+    # Decision logic: RapidOCR > EasyOCR with GPU > Tesseract > PaddleOCR > EasyOCR without GPU
+    if "rapidocr" in available_providers:
+        logging.info("Auto-selected RapidOCR (fastest CPU performance)")
+        return "rapidocr", False  # provider, use_gpu (N/A for RapidOCR)
+    elif gpu_available and "easyocr" in available_providers:
         logging.info("Auto-selected EasyOCR with GPU acceleration (best accuracy)")
         return "easyocr", True  # provider, use_gpu
     elif "tesseract" in available_providers:
-        logging.info("Auto-selected Tesseract (best speed, no GPU required)")
+        logging.info("Auto-selected Tesseract (good speed, widely compatible)")
         return "tesseract", False
+    elif "paddleocr" in available_providers:
+        logging.info("Auto-selected PaddleOCR (good accuracy, CPU optimized)")
+        return "paddleocr", False
     elif "easyocr" in available_providers:
         logging.info("Auto-selected EasyOCR with CPU (GPU not available)")
         return "easyocr", False
@@ -87,11 +97,31 @@ def check_ocr_availability():
         if not _availability_logged:
             logging.warning(f"Tesseract not available: {e}")
     
+    # Check RapidOCR
+    try:
+        import rapidocr_onnxruntime
+        available_providers.append("rapidocr")
+        if not _availability_logged:
+            logging.info("RapidOCR is available")
+    except ImportError:
+        if not _availability_logged:
+            logging.warning("RapidOCR not available - install with: pip install rapidocr-onnxruntime")
+    
+    # Check PaddleOCR
+    try:
+        import paddleocr
+        available_providers.append("paddleocr")
+        if not _availability_logged:
+            logging.info("PaddleOCR is available")
+    except ImportError:
+        if not _availability_logged:
+            logging.warning("PaddleOCR not available - install with: pip install paddlepaddle paddleocr")
+    
     # Mark that we've logged availability info (only log once)
     _availability_logged = True
     
     if not available_providers:
-        logging.error("No OCR providers available! Please install either EasyOCR (pip install easyocr) or Tesseract")
+        logging.error("No OCR providers available! Please install at least one: EasyOCR, Tesseract, RapidOCR, or PaddleOCR")
         raise ImportError("No OCR providers available")
     
     return available_providers
@@ -131,6 +161,10 @@ def get_cached_ocr_provider(provider_type: str, advanced_settings: Dict[str, Any
         try:
             if provider_type == "easyocr":
                 _ocr_provider_cache[cache_key] = EasyOcrProvider(advanced_settings)
+            elif provider_type == "rapidocr":
+                _ocr_provider_cache[cache_key] = RapidOcrProvider(advanced_settings)
+            elif provider_type == "paddleocr":
+                _ocr_provider_cache[cache_key] = PaddleOcrProvider(advanced_settings)
             elif provider_type == "hybrid":
                 _ocr_provider_cache[cache_key] = HybridOcrProvider(advanced_settings)
             else:  # tesseract
@@ -139,12 +173,17 @@ def get_cached_ocr_provider(provider_type: str, advanced_settings: Dict[str, Any
         except Exception as e:
             logging.error(f"Failed to create {provider_type} OCR provider: {e}")
             # Final fallback - try the other available provider
-            for fallback_provider in available_providers:
-                if fallback_provider != provider_type:
+            fallback_priority = ["rapidocr", "tesseract", "easyocr", "paddleocr"]
+            for fallback_provider in fallback_priority:
+                if fallback_provider != provider_type and fallback_provider in available_providers:
                     logging.info(f"Trying fallback to {fallback_provider}...")
                     try:
                         if fallback_provider == "easyocr":
                             _ocr_provider_cache[cache_key] = EasyOcrProvider(advanced_settings)
+                        elif fallback_provider == "rapidocr":
+                            _ocr_provider_cache[cache_key] = RapidOcrProvider(advanced_settings)
+                        elif fallback_provider == "paddleocr":
+                            _ocr_provider_cache[cache_key] = PaddleOcrProvider(advanced_settings)
                         else:
                             _ocr_provider_cache[cache_key] = TesseractOcrProvider(advanced_settings)
                         logging.info(f"Successfully fell back to {fallback_provider}")
@@ -379,6 +418,180 @@ class EasyOcrProvider(OcrProvider):
             
             return text
             
+
+
+class RapidOcrProvider(OcrProvider):
+    """OCR provider using RapidOCR for fast CPU performance."""
+    
+    def __init__(self, advanced_settings: Dict[str, Any]):
+        self.advanced_settings = advanced_settings
+        self._setup_rapidocr()
+
+    def _setup_rapidocr(self):
+        """Initialize RapidOCR engine."""
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+            
+            rapidocr_config = self.advanced_settings.get("rapidocr", {})
+            
+            # RapidOCR configuration
+            config = {
+                'text_score': rapidocr_config.get("text_score", 0.5),
+                'use_angle_cls': rapidocr_config.get("use_angle_cls", True),
+                'use_text_det': rapidocr_config.get("use_text_det", True),
+            }
+            
+            self.engine = RapidOCR(**config)
+            logging.info("RapidOCR initialized successfully")
+            
+        except ImportError:
+            logging.error("RapidOCR not installed. Install with: pip install rapidocr-onnxruntime")
+            raise
+        except Exception as e:
+            logging.error(f"Failed to initialize RapidOCR: {e}")
+            raise
+
+    def _preprocess_image_for_ocr(self, image: Image.Image) -> np.ndarray:
+        """Applies preprocessing steps to improve OCR accuracy for RapidOCR."""
+        ocr_config = self.advanced_settings.get("ocr", {})
+        # RapidOCR works with NumPy arrays
+        return _preprocess_image_with_cv2(image, ocr_config)
+
+    def get_text_from_region(self, screenshot: Image.Image, region: Tuple[int, int, int, int], field_name: str = "") -> str:
+        """Extract text using RapidOCR."""
+        start_time = time.time()
+        try:
+            cropped = screenshot.crop(region)
+            preprocessed_img_array = self._preprocess_image_for_ocr(cropped)
+            
+            # RapidOCR expects RGB format
+            result, _ = self.engine(preprocessed_img_array)
+            
+            rapidocr_config = self.advanced_settings.get("rapidocr", {})
+            confidence_threshold = rapidocr_config.get("confidence_threshold", 0.5)
+            
+            texts = []
+            if result:
+                for line in result:
+                    if len(line) >= 2:
+                        text = line[1]
+                        # Ensure confidence is a float for comparison
+                        try:
+                            confidence = float(line[2]) if len(line) > 2 else 1.0
+                        except (ValueError, TypeError) as e:
+                            logging.debug(f"RapidOCR: Failed to convert confidence '{line[2] if len(line) > 2 else 'N/A'}' to float: {e}")
+                            confidence = 1.0  # Default to high confidence if conversion fails
+                        
+                        if confidence > confidence_threshold:
+                            texts.append(text)
+            
+            text = ' '.join(texts)
+            
+            # Apply consistent text cleaning
+            text = text.replace('|', '').replace('_', ' ')
+            text = ' '.join(text.split())
+            text = re.sub(r'\s+[_\-\.\|]\s*$', '', text)
+            text = re.sub(r'(\w+)\s+(of|or|on)$', r'\1a', text)
+            
+            # Log performance
+            ocr_time = time.time() - start_time
+            if field_name:
+                log_ocr_performance(f"{field_name}_rapidocr", region, ocr_time, len(text))
+            
+            return text
+            
+        except Exception as e:
+            logging.error(f"Error in RapidOCR for region {region}: {e}")
+            return ""
+
+
+class PaddleOcrProvider(OcrProvider):
+    """OCR provider using PaddleOCR for comprehensive text recognition."""
+    
+    def __init__(self, advanced_settings: Dict[str, Any]):
+        self.advanced_settings = advanced_settings
+        self._setup_paddleocr()
+
+    def _setup_paddleocr(self):
+        """Initialize PaddleOCR engine."""
+        try:
+            from paddleocr import PaddleOCR
+            import paddle
+            
+            paddleocr_config = self.advanced_settings.get("paddleocr", {})
+            
+            # Suppress PaddlePaddle logging by default
+            paddle.disable_static_logging()
+            
+            config = {
+                'use_angle_cls': paddleocr_config.get("use_angle_cls", True),
+                'lang': paddleocr_config.get("lang", 'en'),
+                'show_log': paddleocr_config.get("show_log", False),
+                'use_gpu': paddleocr_config.get("use_gpu", False),  # Default to CPU for compatibility
+            }
+            
+            self.engine = PaddleOCR(**config)
+            logging.info("PaddleOCR initialized successfully")
+            
+        except ImportError:
+            logging.error("PaddleOCR not installed. Install with: pip install paddlepaddle paddleocr")
+            raise
+        except Exception as e:
+            logging.error(f"Failed to initialize PaddleOCR: {e}")
+            raise
+
+    def _preprocess_image_for_ocr(self, image: Image.Image) -> np.ndarray:
+        """Applies preprocessing steps to improve OCR accuracy for PaddleOCR."""
+        ocr_config = self.advanced_settings.get("ocr", {})
+        # PaddleOCR works with NumPy arrays
+        return _preprocess_image_with_cv2(image, ocr_config)
+
+    def get_text_from_region(self, screenshot: Image.Image, region: Tuple[int, int, int, int], field_name: str = "") -> str:
+        """Extract text using PaddleOCR."""
+        start_time = time.time()
+        try:
+            cropped = screenshot.crop(region)
+            preprocessed_img_array = self._preprocess_image_for_ocr(cropped)
+            
+            # PaddleOCR expects BGR format (OpenCV format)
+            result = self.engine.ocr(preprocessed_img_array, cls=True)
+            
+            paddleocr_config = self.advanced_settings.get("paddleocr", {})
+            confidence_threshold = paddleocr_config.get("confidence_threshold", 0.5)
+            
+            texts = []
+            if result and len(result) > 0 and result[0] is not None:
+                for line in result[0]:
+                    if len(line) >= 2:
+                        text = line[1][0]
+                        # Ensure confidence is a float for comparison
+                        try:
+                            confidence = float(line[1][1]) if len(line[1]) > 1 else 1.0
+                        except (ValueError, TypeError) as e:
+                            logging.debug(f"PaddleOCR: Failed to convert confidence '{line[1][1] if len(line[1]) > 1 else 'N/A'}' to float: {e}")
+                            confidence = 1.0  # Default to high confidence if conversion fails
+                        
+                        if confidence > confidence_threshold:
+                            texts.append(text)
+            
+            text = ' '.join(texts)
+            
+            # Apply consistent text cleaning
+            text = text.replace('|', '').replace('_', ' ')
+            text = ' '.join(text.split())
+            text = re.sub(r'\s+[_\-\.\|]\s*$', '', text)
+            text = re.sub(r'(\w+)\s+(of|or|on)$', r'\1a', text)
+            
+            # Log performance
+            ocr_time = time.time() - start_time
+            if field_name:
+                log_ocr_performance(f"{field_name}_paddleocr", region, ocr_time, len(text))
+            
+            return text
+            
+        except Exception as e:
+            logging.error(f"Error in PaddleOCR for region {region}: {e}")
+            return ""
 
 
 class HybridOcrProvider(OcrProvider):

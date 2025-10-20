@@ -316,64 +316,15 @@ def main():
     
     if not config_exists:
         print("\n⚠️  No configuration found!")
-        print("   You'll need to set up coordinates using the GUI first.")
+        print("   You can set up coordinates using the web interface.")
     
-    print("\n🎯 What would you like to do?")
-    print("   1. 📊 Launch Streamlit Monitor (web interface)")
-    print("   2. 🛠️  Launch Coordinate Setup GUI")
-    print("   3. 🚀 Launch Both (recommended for first-time setup)")
-    print("   4. 🔧 OCR Engine Setup (change OCR engine)")
-    print("   5. 🔍 VLM Debug: See what VLM reads from images")
-    print("   6. ❌ Exit")
+    print("\n🚀 Launching Streamlit Web Interface...")
+    print("📍 Your browser should open automatically to: http://localhost:8501")
+    print("🛠️  All settings and configuration are available in the web interface")
+    print("💡 Tip: Use the 'Settings' tab in the web interface to configure coordinates and OCR")
     
-    choice = input("\nEnter your choice (1-6): ").strip()
-    
-    if choice == '1':
-        print("\n🌐 Starting Streamlit web interface...")
-        print("📍 Your browser should open automatically to: http://localhost:8501")
-        subprocess.run([sys.executable, '-m', 'streamlit', 'run', 'ui/streamlit_app.py'])
-        
-    elif choice == '2':
-        if not gui_exists:
-            print("❌ Setup GUI not found (ui/settings_gui.py missing)")
-            return
-        print("\n🛠️  Starting coordinate setup GUI...")
-        subprocess.run([sys.executable, 'ui/settings_gui.py'])
-        
-    elif choice == '3':
-        if not gui_exists:
-            print("❌ Setup GUI not found (ui/settings_gui.py missing)")
-            return
-            
-        print("\n🚀 Starting both interfaces...")
-        print("   🛠️  First: Coordinate Setup GUI")
-        print("   🌐 Then: Streamlit Monitor")
-        
-        # Start GUI first
-        gui_process = subprocess.Popen([sys.executable, 'ui/settings_gui.py'])
-        
-        # Give GUI time to start
-        time.sleep(2)
-        
-        # Start Streamlit
-        print("📍 Opening Streamlit in your browser...")
-        subprocess.run([sys.executable, '-m', 'streamlit', 'run', 'ui/streamlit_app.py'])
-        
-    elif choice == '4':
-        print("\n🔧 OCR Engine Setup...")
-        setup_ocr_engine(auto_select=False)
-        print("\n✅ OCR setup complete! You can now launch the main application.")
-        
-    elif choice == '5':
-        print("\n🔍 VLM Debug Tool - Text Extraction Analysis")
-        print("   This will show what text the VLM can actually read from prescription images.")
-        subprocess.run([sys.executable, 'tools/debug_vlm_text.py'])
-        
-    elif choice == '6':
-        print("👋 Goodbye!")
-        
-    else:
-        print("❌ Invalid choice. Please run the script again.")
+    # Launch Streamlit directly
+    subprocess.run([sys.executable, '-m', 'streamlit', 'run', 'ui/streamlit_app.py'])
 
 if __name__ == "__main__":
     try:

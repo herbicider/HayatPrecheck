@@ -2,7 +2,7 @@
   "timing": {
     "fast_polling_seconds": 0.5,
     "max_static_sleep_seconds": 3.0,
-    "same_prescription_wait_seconds": 3.0,
+    "same_prescription_wait_seconds": 10.0,
     "trigger_content_load_delay_seconds": 1.0,
     "verification_wait_seconds": 0.3,
     "trigger_check_interval_seconds": 1.0,
@@ -10,10 +10,10 @@
     "ocr_max_retries": 2
   },
   "thresholds": {
-    "patient": 80,
-    "prescriber": 80,
-    "drug": 80,
-    "sig": 80
+    "patient": 85,
+    "prescriber": 85,
+    "drug": 85,
+    "sig": 85
   },
   "regions": {
     "trigger": [
@@ -43,8 +43,7 @@
           430
         ],
         "score_fn": "token_sort_ratio",
-        "threshold_key": "patient",
-        "verification_method": "ai"
+        "threshold_key": "patient"
       },
       "prescriber_name": {
         "entered": [
@@ -60,8 +59,7 @@
           310
         ],
         "score_fn": "token_sort_ratio",
-        "threshold_key": "prescriber",
-        "verification_method": "ai"
+        "threshold_key": "prescriber"
       },
       "drug_name": {
         "entered": [
@@ -77,8 +75,7 @@
           578
         ],
         "score_fn": "ratio",
-        "threshold_key": "drug",
-        "verification_method": "ai"
+        "threshold_key": "drug"
       },
       "direction_sig": {
         "entered": [
@@ -94,8 +91,7 @@
           658
         ],
         "score_fn": "ratio",
-        "threshold_key": "sig",
-        "verification_method": "ai"
+        "threshold_key": "sig"
       },
       "patient_dob": {
         "entered": [
@@ -177,6 +173,19 @@
     "use_gpu": true,
     "confidence_threshold": 0.5
   },
+  "rapidocr": {
+    "text_score": 0.3,
+    "confidence_threshold": 0.3,
+    "use_angle_cls": false,
+    "use_text_det": true
+  },
+  "paddleocr": {
+    "use_gpu": false,
+    "confidence_threshold": 0.8,
+    "use_angle_cls": false,
+    "show_log": false,
+    "lang": "en"
+  },
   "optional_fields_enabled": {
     "patient_dob": false,
     "patient_phone": false,
@@ -216,5 +225,38 @@
       "ocr_worker_count": 4
     }
   },
-  "verification_mode": "vlm"
+  "verification_method": "llm_ai",
+  "verification_methods": {
+    "local_ocr_fuzzy": {
+      "enabled": true,
+      "description": "Multiple small OCR areas + fuzzy text comparison (CPU-based)",
+      "use_existing_regions": true
+    },
+    "llm_ai": {
+      "enabled": true,
+      "description": "2 large OCR areas + LLM comparison (requires LLM API)",
+      "use_vlm_regions": true,
+      "llm_config_required": true
+    },
+    "vlm_ai": {
+      "enabled": true,
+      "description": "Direct VLM image analysis (no OCR, requires VLM API)",
+      "use_vlm_regions": true,
+      "vlm_config_required": true
+    }
+  },
+  "llm_regions": {
+    "data_entry": [
+      15,
+      132,
+      394,
+      966
+    ],
+    "source": [
+      408,
+      185,
+      1314,
+      940
+    ]
+  }
 }

@@ -415,8 +415,14 @@ class VerificationController:
         
         # If in VLM mode and OCR failed completely, try the VLM mode OCR approach
         # (This provides a secondary OCR attempt with potentially different settings)
-        verification_mode = self.config.get("verification_mode", "ocr")
-        if verification_mode == "vlm":
+        verification_method = self.config.get("verification_method", "local_ocr_fuzzy")
+        
+        # Handle legacy configuration for trigger detection
+        if "verification_mode" in self.config and "verification_method" not in self.config:
+            legacy_mode = self.config.get("verification_mode", "ocr")
+            verification_method = "vlm_ai" if legacy_mode == "vlm" else "local_ocr_fuzzy"
+        
+        if verification_method == "vlm_ai":
             vlm_trigger_detected, vlm_rx_number = self._check_trigger_with_vlm(trigger_region, keywords)
             if vlm_trigger_detected:
                 logging.debug(f"Trigger detected via VLM mode OCR: Rx#{vlm_rx_number or 'UNKNOWN'}")
@@ -585,23 +591,34 @@ class VerificationController:
             self.verification_in_progress = True
             logging.info("Running field verification...")
 
-            # Check verification mode
-            verification_mode = self.config.get("verification_mode", "ocr")
+            # Check verification method (new structure)
+            verification_method = self.config.get("verification_method", "local_ocr_fuzzy")
             
-            if verification_mode == "vlm":
-                # Use VLM verification
+            # Handle legacy configuration
+            if "verification_mode" in self.config and "verification_method" not in self.config:
+                legacy_mode = self.config.get("verification_mode", "ocr")
+                verification_method = "vlm_ai" if legacy_mode == "vlm" else "local_ocr_fuzzy"
+                logging.info(f"Using legacy verification_mode '{legacy_mode}' -> '{verification_method}'")
+            
+            if verification_method == "vlm_ai":
+                # Use VLM verification (direct image analysis)
                 results = await self._verify_with_vlm()
+            elif verification_method == "llm_ai":
+                # Use LLM AI verification (OCR + LLM comparison)
+                results = await self._verify_with_llm_ai()
             else:
-                # Use traditional OCR verification
+                # Use local OCR + fuzzy matching (default)
                 if ocr_results is None:
                     ocr_results = await self._perform_ocr_on_all_fields(screenshot)
                 results = self.comparison_engine.verify_fields(ocr_results)
             
             log_rx_summary(self.last_rx_number or "", results)
             
-            # Create prescription signature for VLM mode
-            if verification_mode == "vlm":
+            # Create prescription signature based on method
+            if verification_method == "vlm_ai":
                 self.last_verified_signature = f"vlm_verification_{int(time.time())}"
+            elif verification_method == "llm_ai":
+                self.last_verified_signature = f"llm_ai_verification_{int(time.time())}"
             elif ocr_results:
                 self.last_verified_signature = self._get_prescription_signature(ocr_results)
             else:
@@ -616,6 +633,33 @@ class VerificationController:
             logging.error(f"Error during verification: {e}")
         finally:
             self.verification_in_progress = False
+
+    async def _verify_with_llm_ai(self) -> Dict[str, Dict[str, Any]]:
+        """Perform verification using LLM AI method (OCR + LLM comparison)"""
+        try:
+            # Import LLM verifier
+            try:
+                from ai.llm_verifier import LLM_Verifier
+            except ImportError:
+                logging.error("LLM AI: LLM Verifier module not available")
+                return {}
+            
+            # Create LLM verifier
+            llm_verifier = LLM_Verifier(self.config)
+            
+            # Run LLM AI verification
+            logging.info("LLM AI: Starting OCR + LLM verification")
+            results = llm_verifier.verify_with_llm_ai()
+            
+            # DEBUG: Log the actual results being returned
+            logging.info(f"LLM AI: Raw results returned: {[(k, v.get('score', 'NO_SCORE')) for k, v in results.items()]}")
+            
+            logging.info(f"LLM AI: Verification completed for {len(results)} fields")
+            return results
+            
+        except Exception as e:
+            logging.error(f"LLM AI: Error during verification: {e}")
+            return {}
 
     async def _verify_with_vlm(self) -> Dict[str, Dict[str, Any]]:
         """Perform verification using Vision Language Model"""
@@ -669,7 +713,7 @@ class VerificationController:
                     "score": score,
                     "match": match,
                     "threshold": threshold,
-                    "method": "vlm",
+                    "method": "vlm_ai",
                     "coords": field_coords  # Add coordinates for overlay
                 }
                 
@@ -697,33 +741,7 @@ class VerificationController:
             logging.error(f"VLM: Error loading configuration: {e}")
             return None
 
-    def debug_vlm_text_extraction(self) -> Dict[str, str]:
-        """
-        Debug method to see what text VLM can actually read from the images.
-        Useful for troubleshooting VLM verification issues.
-        """
-        try:
-            vlm_config = self._load_vlm_config()
-            if not vlm_config:
-                return {"error": "VLM configuration not found"}
-            
-            from ai.vlm_verifier import VLM_Verifier
-            vlm_verifier = VLM_Verifier(vlm_config)
-            
-            logging.info("🔍 VLM Debug: Extracting text from current screen regions...")
-            results = vlm_verifier.debug_vlm_with_text_extraction()
-            
-            if "error" in results:
-                logging.error(f"VLM Debug failed: {results['error']}")
-            else:
-                logging.info("✅ VLM Debug completed - check logs above for detailed text extraction")
-            
-            return results
-            
-        except Exception as e:
-            error_msg = f"VLM debug extraction failed: {e}"
-            logging.error(error_msg)
-            return {"error": error_msg}
+
 
     def stop(self):
         """Stop the monitoring loop gracefully."""
@@ -734,13 +752,24 @@ class VerificationController:
 
     async def async_run(self):
         """Main asynchronous monitoring loop."""
-        verification_mode = self.config.get("verification_mode", "ocr")
+        verification_method = self.config.get("verification_method", "local_ocr_fuzzy")
+        
+        # Handle legacy configuration
+        if "verification_mode" in self.config and "verification_method" not in self.config:
+            legacy_mode = self.config.get("verification_mode", "ocr")
+            verification_method = "vlm_ai" if legacy_mode == "vlm" else "local_ocr_fuzzy"
+        
         trigger_keywords = self.advanced_settings.get("trigger", {}).get("keywords", ["pre", "check", "rx"])
         
-        if verification_mode == "vlm":
-            logging.info(f"🤖 VLM monitoring active (OCR triggers) - Looking for triggers: {trigger_keywords}")
-        else:
-            logging.info(f"📖 OCR monitoring active - Looking for triggers: {trigger_keywords}")
+        # Display appropriate monitoring message based on method
+        method_descriptions = {
+            "local_ocr_fuzzy": "📖 Local OCR + Fuzzy matching",
+            "llm_ai": "🤖 LLM AI (OCR + LLM comparison)",
+            "vlm_ai": "👁️ VLM AI (Direct image analysis)"
+        }
+        
+        method_desc = method_descriptions.get(verification_method, f"❓ Unknown method ({verification_method})")
+        logging.info(f"{method_desc} monitoring active - Looking for triggers: {trigger_keywords}")
             
         consecutive_no_change = 0
         loop_count = 0
@@ -889,7 +918,7 @@ def load_config(path: str) -> Optional[Dict[str, Any]]:
 def main():
     """Application entry point."""
     setup_logging()
-    config = load_config("config.json")
+    config = load_config("config/config.json")
     if not config:
         logging.critical("Failed to load configuration. Exiting.")
         sys.exit(1)

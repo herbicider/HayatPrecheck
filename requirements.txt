@@ -10,6 +10,13 @@ pytesseract
 # EasyOCR (good accuracy, moderate initialization)
 easyocr
 
+# RapidOCR (fastest CPU performance, lightweight)
+# rapidocr-onnxruntime
+
+# PaddleOCR (comprehensive text detection, CPU optimized)
+# paddlepaddle
+# paddleocr
+
 # Streamlit web app dependencies
 streamlit
 pandas

@@ -416,18 +416,15 @@ class VLMRegionSelector:
             # Run test in thread to avoid blocking UI
             def run_test():
                 try:
-                    import subprocess
-                    result = subprocess.run(
-                        ["python", "test_vlm.py"], 
-                        capture_output=True, 
-                        text=True, 
-                        cwd=os.getcwd()
-                    )
+                    # Test VLM connection using built-in test method
+                    from ai.vlm_verifier import VLM_Verifier
+                    vlm_verifier = VLM_Verifier(self.vlm_config)
+                    result = vlm_verifier.test_vlm_connection()
                     
-                    if result.returncode == 0:
+                    if "error" not in result:
                         self.root.after(0, lambda: self.show_test_result("Success", "VLM test passed! ✅"))
                     else:
-                        self.root.after(0, lambda: self.show_test_result("Error", f"VLM test failed:\n{result.stderr}"))
+                        self.root.after(0, lambda: self.show_test_result("Error", f"VLM test failed:\n{result.get('error', 'Unknown error')}"))
                         
                 except Exception as e:
                     self.root.after(0, lambda: self.show_test_result("Error", f"Test error: {e}"))

@@ -1300,96 +1300,9 @@ Respond with ONLY this JSON:
             self.logger.error(f"Failed to compare and score: {e}")
             return {}
 
-    def _log_vlm_text_extraction(self, response_content: str):
-        """Log any text that VLM mentions it could read for debugging purposes"""
-        try:
-            # Look for patterns where VLM describes what it sees
-            import re
-            
-            # Common phrases VLM might use to describe what it sees
-            text_patterns = [
-                r"(?:I can see|I see|shows?|contains?|displays?|reads?)\s*[\"']([^\"']+)[\"']",
-                r"(?:text|says?|shows?)\s*[\"']([^\"']+)[\"']",
-                r"[\"']([^\"']{3,})[\"']",  # Any quoted text 3+ chars
-            ]
-            
-            extracted_texts = []
-            for pattern in text_patterns:
-                matches = re.finditer(pattern, response_content, re.IGNORECASE)
-                for match in matches:
-                    text = match.group(1).strip()
-                    if len(text) > 2 and text not in extracted_texts:
-                        extracted_texts.append(text)
-            
-            if extracted_texts:
-                self.logger.info("=== VLM TEXT EXTRACTION DEBUG ===")
-                self.logger.info("Text that VLM could read from images:")
-                for i, text in enumerate(extracted_texts, 1):
-                    self.logger.info(f"  {i}. '{text}'")
-            else:
-                self.logger.debug("No specific text extractions found in VLM response")
-                
-        except Exception as e:
-            self.logger.error(f"Error extracting VLM text analysis: {e}")
 
-    def debug_vlm_with_text_extraction(self) -> Dict[str, str]:
-        """
-        Special debug method to ask VLM what text it can see in each image.
-        This is purely for debugging - not used in normal verification.
-        """
-        try:
-            # Capture screenshots
-            data_entry_img = self.capture_region_screenshot("data_entry")
-            source_img = self.capture_region_screenshot("source")
-            
-            if not data_entry_img or not source_img:
-                return {"error": "Failed to capture screenshots"}
-            
-            # Encode images
-            data_entry_b64 = self.encode_image_to_base64(data_entry_img)
-            source_b64 = self.encode_image_to_base64(source_img)
-            
-            debug_results = {}
-            
-            # Ask VLM what it can see in each image separately
-            for img_name, img_b64 in [("data_entry", data_entry_b64), ("source", source_b64)]:
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "Please list all the text you can read in this prescription image. Be very specific about what text you see."
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{img_b64}"
-                                }
-                            }
-                        ]
-                    }
-                ]
-                
-                chat_completion = self.client.chat.completions.create(
-                    messages=messages,
-                    model=self.config.get("model_name", "llava-next"),
-                    max_tokens=1000,
-                    temperature=0.0
-                )
-                
-                response = chat_completion.choices[0].message.content.strip()
-                debug_results[img_name] = response
-                
-                self.logger.info(f"=== VLM DEBUG: {img_name.upper()} TEXT EXTRACTION ===")
-                self.logger.info(response)
-            
-            return debug_results
-            
-        except Exception as e:
-            error_msg = f"VLM debug text extraction failed: {e}"
-            self.logger.error(error_msg)
-            return {"error": error_msg}
+
+
 
     def test_vlm_connection(self) -> Dict[str, Any]:
         """Test the VLM connection and configuration"""

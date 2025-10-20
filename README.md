@@ -455,13 +455,12 @@ http://localhost:8501
 │   └── ocr_provider.py             # OCR engine management
 ├── 📁 ai/                     # AI and ML modules
 │   ├── vlm_verifier.py       # Vision Language Model engine
-│   └── ai_verifier.py        # AI-powered text verification
+│   └── cpu_verifier.py       # CPU-based AI text verification
 ├── 📁 ui/                     # User interfaces
 │   ├── streamlit_app.py      # Main web dashboard
 │   ├── settings_gui.py       # GUI coordinate setup
 │   └── vlm_gui.py           # VLM visual configuration
 └── 📁 tools/                  # Testing and utilities
-    └── test_vlm.py          # VLM testing script
 ```
 
 ### Quick Access Points
@@ -477,8 +476,8 @@ http://localhost:8501
 - **AI Configuration**: `config/llm_config.json`
 
 **🧪 Testing:**
-- **VLM Testing**: `python tools/test_vlm.py`
 - **OCR Testing**: Built into GUI tools
+- **VLM Testing**: Built into web interface and GUIs
 - **Full System Test**: Use launcher's test mode
 
 ## 🚀 Future Development Roadmap

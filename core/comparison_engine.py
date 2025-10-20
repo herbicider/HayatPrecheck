@@ -5,7 +5,7 @@ import os
 import logging
 from typing import Dict, Any, Tuple
 from rapidfuzz import fuzz
-from ai.ai_verifier import AI_Verifier
+# AI verifier no longer used for small area verification - using LLM AI method instead
 
 from core.logger_config import log_field_details
 
@@ -17,13 +17,7 @@ class ComparisonEngine:
         self.advanced_settings = config.get("advanced_settings", {})
         self._abbreviations = self._load_abbreviations()
         logging.info(f"Cached {len(self._abbreviations)} abbreviations for efficient matching")
-        self.ai_verifier = None
-        # Always initialize AI_Verifier to support local LLMs without API keys
-        try:
-            self.ai_verifier = AI_Verifier(self.config)
-            logging.info("AI Verifier initialized successfully.")
-        except Exception as e:
-            logging.error(f"Failed to initialize AI Verifier: {e}")
+        # AI verifier removed - use LLM AI method for AI-powered verification instead
 
     def _load_abbreviations(self) -> Dict[str, str]:
         """Loads pharmaceutical abbreviations from config/abbreviations.json (preferred), with fallbacks."""
@@ -336,52 +330,12 @@ class ComparisonEngine:
         fields_config = self.config["regions"]["fields"]
         thresholds = self.config["thresholds"]
 
-        # Step 1: Identify all fields that need AI verification
-        ai_fields = []
-        ai_field_data = {}
-        
-        for field_name, (entered_text, source_text) in ocr_results.items():
-            if field_name not in fields_config:
-                continue
-                
-            field_config = fields_config[field_name]
-            verification_method = field_config.get("verification_method", "fuzzy")
-            
-            # Collect AI fields even if empty - let AI handle them appropriately
-            if verification_method == "ai" and self.ai_verifier:
-                ai_fields.append(field_name)
-                ai_field_data[field_name] = (entered_text, source_text)
-                if not entered_text.strip() or not source_text.strip():
-                    logging.warning(f"AI field {field_name} has empty data: entered='{entered_text}' source='{source_text}'")
-
-        # Step 2: Make a single AI request for all AI fields
-        ai_scores = {}
-        if ai_fields and self.ai_verifier:
-            logging.debug(f"[AI Mode] Starting batch AI verification for {len(ai_fields)} fields: {ai_fields}")
-            
-            ai_result = self.ai_verifier.verify_with_ai(ai_fields[0], ocr_results)  # Pass first field for compatibility
-            
-            if isinstance(ai_result, dict):
-                # Fix key mismatch: normalize AI response keys (spaces, slashes, etc. to underscores)
-                ai_scores = {}
-                for key, value in ai_result.items():
-                    # Convert "Directions/Sig" -> "directions_sig", "Patient Name" -> "patient_name", etc.
-                    normalized_key = re.sub(r'[/\s]+', '_', key.lower())
-                    ai_scores[normalized_key] = value
-            else:
-                # Legacy format - only one field was processed
-                ai_scores[ai_fields[0]] = ai_result
-                
-        elif ai_fields:
-            logging.warning(f"AI fields detected {ai_fields} but AI verifier not available - falling back to fuzzy matching")
-
-        # Step 3: Process all fields (AI and non-AI)
+        # Process all fields with fuzzy matching only (small area OCR+AI removed)
         for field_name, (entered_text, source_text) in ocr_results.items():
             if field_name not in fields_config:
                 continue
 
             field_config = fields_config[field_name]
-            verification_method = field_config.get("verification_method", "fuzzy")
             threshold = thresholds[field_config["threshold_key"]]
             
             score, is_match = 0.0, False
@@ -402,17 +356,8 @@ class ComparisonEngine:
                     
                 logging.warning(f"Field {field_name} has empty {'/'.join(empty_field_type)} text - setting score to 0")
                 
-            elif verification_method == "ai" and field_name in ai_scores:
-                # Use AI result from batch request
-                score = ai_scores.get(field_name, 0)
-                is_match = score >= threshold
-                cleaned_entered = "[AI Mode]"
-                cleaned_source = "[AI Mode]"
-            elif verification_method == "ai":
-                # AI field but not in AI scores - either no AI verifier or AI failed
-                logging.warning(f"[AI Mode] Field {field_name} configured for AI but not in results - using fallback fuzzy matching")
-                
-                # Fall back to standard fuzzy matching
+            else:
+                # Use fuzzy matching for all small area fields
                 if field_name in ["patient_name", "prescriber_name"]:
                     cleaned_entered = self._normalize_name(entered_text, is_entered_field=True)
                     cleaned_source = self._normalize_name(source_text, is_entered_field=False)
@@ -449,41 +394,6 @@ class ComparisonEngine:
                 else:
                     score = 0.0
                     is_match = False
-            else:
-                # Standard fuzzy matching
-                if field_name in ["patient_name", "prescriber_name"]:
-                    cleaned_entered = self._normalize_name(entered_text, is_entered_field=True)
-                    cleaned_source = self._normalize_name(source_text, is_entered_field=False)
-                elif field_name == "drug_name":
-                    cleaned_entered = self._clean_drug_name(entered_text)
-                    cleaned_source = self._clean_drug_name(source_text)
-                elif field_name in ["direction_sig", "sig", "directions"]:
-                    cleaned_entered = self._clean_sig_text(entered_text)
-                    cleaned_source = self._clean_sig_text(source_text)
-                elif field_name == "patient_dob":
-                    cleaned_entered = self._clean_dob(entered_text)
-                    cleaned_source = self._clean_dob(source_text)
-                elif field_name == "patient_phone":
-                    cleaned_entered = self._clean_phone_number(entered_text)
-                    cleaned_source = self._clean_phone_number(source_text)
-                elif field_name in ["patient_address", "prescriber_address"]:
-                    cleaned_entered = self._normalize_address(entered_text)
-                    cleaned_source = self._normalize_address(source_text)
-                else:
-                    cleaned_entered = self._clean_text(entered_text)
-                    cleaned_source = self._clean_text(source_text)
-
-                if cleaned_entered and cleaned_source:
-                    if field_name == "drug_name":
-                        score, is_match = self._enhanced_drug_name_match(cleaned_entered, cleaned_source, threshold)
-                    elif field_name == "prescriber_name":
-                        score, is_match = self._match_prescriber_names(entered_text, source_text, threshold)
-                    elif field_name == "patient_name":
-                        score, is_match = self._enhanced_name_match(entered_text, source_text, threshold)
-                    else:
-                        scorer = getattr(fuzz, field_config.get("score_fn", "ratio"), fuzz.ratio)
-                        score = scorer(cleaned_entered, cleaned_source)
-                        is_match = score >= threshold
             
             # Use debug logging for detailed field analysis
             log_field_details(field_name, entered_text, source_text, 
