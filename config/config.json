@@ -225,7 +225,7 @@
       "ocr_worker_count": 4
     }
   },
-  "verification_method": "llm_ai",
+  "verification_method": "vlm_ai",
   "verification_methods": {
     "local_ocr_fuzzy": {
       "enabled": true,

@@ -49,10 +49,9 @@ class VLMRegionSelector:
         self.current_rect = None
         self.current_region = None
         
-        # Regions storage
+        # Single region storage for comparison area
         self.regions = {
-            "data_entry": [0, 0, 800, 600],
-            "source": [800, 0, 1600, 600]
+            "comparison": [0, 0, 1600, 600]
         }
         
         self.setup_ui()
@@ -77,21 +76,34 @@ class VLMRegionSelector:
                 "base_url": "http://localhost:8081/v1",
                 "api_key": "llamacpp",
                 "model_name": ".\\models\\Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
-                "system_prompt": "You are a prescription verification assistant...",
-                "user_prompt": "Please compare these prescription images...",
+                "oneshot_system_prompt": "You are a pharmacy prescription verification agent. Compare the prescription data and provide accurate matching scores.",
+                "oneshot_user_prompt": """You are a pharmacy prescription verify agent. In the screenshot, the left side is what was entered, the right side is the original prescription.
+
+Please give me a matching score between 0-100 for:
+- patient: How well does the patient information match?
+- prescriber: How well does the prescriber information match?
+- drug: How well does the drug information match?
+- direction: How well do the directions match?
+
+Return your response in this exact JSON format (no reasoning, no explanation):
+{
+  "patient": score,
+  "prescriber": score,
+  "drug": score,
+  "direction": score
+}""",
                 "max_tokens": 500,
-                "temperature": 0.1
+                "temperature": 0.0
             },
             "vlm_regions": {
-                "data_entry": [0, 0, 800, 600],
-                "source": [800, 0, 1600, 600]
+                "comparison": [0, 0, 1600, 600]
             },
             "vlm_settings": {
                 "image_format": "PNG",
                 "image_quality": 95,
                 "auto_enhance": True,
-                "resize_max_width": 1024,
-                "resize_max_height": 768
+                "resize_max_width": 1920,
+                "resize_max_height": 1440
             }
         }
     
@@ -121,16 +133,13 @@ class VLMRegionSelector:
                   command=self.take_screenshot, width=20).grid(row=0, column=0, pady=5, sticky=tk.W)
         
         # Region selection
-        ttk.Label(controls_frame, text="Select Region:").grid(row=1, column=0, pady=(20, 5), sticky=tk.W)
+        ttk.Label(controls_frame, text="Comparison Region:").grid(row=1, column=0, pady=(20, 5), sticky=tk.W)
         
-        self.region_var = tk.StringVar(value="data_entry")
-        region_frame = ttk.Frame(controls_frame)
-        region_frame.grid(row=2, column=0, sticky=tk.W)
-        
-        ttk.Radiobutton(region_frame, text="Data Entry Region", 
-                       variable=self.region_var, value="data_entry").grid(row=0, column=0, sticky=tk.W)
-        ttk.Radiobutton(region_frame, text="Source Region", 
-                       variable=self.region_var, value="source").grid(row=1, column=0, sticky=tk.W)
+        info_label = ttk.Label(controls_frame, 
+                              text="Select the area containing BOTH\nthe data entry (left) and\noriginal prescription (right)", 
+                              font=("Arial", 9),
+                              foreground="blue")
+        info_label.grid(row=2, column=0, sticky=tk.W, pady=(0, 10))
         
         # Current coordinates display
         coords_frame = ttk.LabelFrame(controls_frame, text="Current Coordinates", padding="10")
@@ -238,34 +247,35 @@ class VLMRegionSelector:
             messagebox.showerror("Error", f"Failed to take screenshot: {e}")
     
     def draw_regions(self):
-        """Draw existing regions on the canvas"""
+        """Draw existing region on the canvas"""
         if not self.screenshot:
             return
         
-        colors = {"data_entry": "red", "source": "blue"}
+        # Single region with green outline
+        region_name = "comparison"
+        coords = self.regions.get(region_name, [])
         
-        for region_name, coords in self.regions.items():
-            if len(coords) == 4:
-                x1, y1, x2, y2 = coords
-                
-                # Scale coordinates for display
-                x1_scaled = x1 * self.scale_factor
-                y1_scaled = y1 * self.scale_factor
-                x2_scaled = x2 * self.scale_factor
-                y2_scaled = y2 * self.scale_factor
-                
-                color = colors.get(region_name, "green")
-                
-                # Draw rectangle
-                self.canvas.create_rectangle(x1_scaled, y1_scaled, x2_scaled, y2_scaled,
-                                           outline=color, width=2, tags=f"region_{region_name}")
-                
-                # Draw label
-                label_x = x1_scaled + 5
-                label_y = y1_scaled + 5
-                self.canvas.create_text(label_x, label_y, text=region_name.replace("_", " ").title(),
-                                      fill=color, font=("Arial", 10, "bold"), anchor=tk.NW,
-                                      tags=f"region_{region_name}")
+        if len(coords) == 4:
+            x1, y1, x2, y2 = coords
+            
+            # Scale coordinates for display
+            x1_scaled = x1 * self.scale_factor
+            y1_scaled = y1 * self.scale_factor
+            x2_scaled = x2 * self.scale_factor
+            y2_scaled = y2 * self.scale_factor
+            
+            color = "green"
+            
+            # Draw rectangle
+            self.canvas.create_rectangle(x1_scaled, y1_scaled, x2_scaled, y2_scaled,
+                                       outline=color, width=3, tags=f"region_{region_name}")
+            
+            # Draw label
+            label_x = x1_scaled + 5
+            label_y = y1_scaled + 5
+            self.canvas.create_text(label_x, label_y, text="Comparison Region",
+                                  fill=color, font=("Arial", 12, "bold"), anchor=tk.NW,
+                                  tags=f"region_{region_name}")
     
     def on_canvas_click(self, event):
         """Handle canvas click - start region selection"""
@@ -276,13 +286,13 @@ class VLMRegionSelector:
         self.selecting = True
         self.start_x = self.canvas.canvasx(event.x)
         self.start_y = self.canvas.canvasy(event.y)
-        self.current_region = self.region_var.get()
+        self.current_region = "comparison"  # Always "comparison" now
         
         # Remove existing selection rectangle
         if self.current_rect:
             self.canvas.delete(self.current_rect)
         
-        self.status_var.set(f"Selecting {self.current_region.replace('_', ' ')} region...")
+        self.status_var.set(f"Selecting comparison region...")
     
     def on_canvas_drag(self, event):
         """Handle canvas drag - update selection rectangle"""
@@ -296,11 +306,10 @@ class VLMRegionSelector:
         if self.current_rect:
             self.canvas.delete(self.current_rect)
         
-        # Draw new rectangle
-        color = "red" if self.current_region == "data_entry" else "blue"
+        # Draw new rectangle (always green for comparison)
         self.current_rect = self.canvas.create_rectangle(
             self.start_x, self.start_y, current_x, current_y,
-            outline=color, width=2, dash=(5, 5)
+            outline="green", width=3, dash=(5, 5)
         )
     
     def on_canvas_release(self, event):
@@ -325,36 +334,42 @@ class VLMRegionSelector:
             self.selecting = False
             return
         
-        # Store coordinates
-        self.regions[self.current_region] = [x1, y1, x2, y2]
+        # Store coordinates (always "comparison")
+        self.regions["comparison"] = [x1, y1, x2, y2]
         
         # Remove temporary rectangle
         if self.current_rect:
             self.canvas.delete(self.current_rect)
         
-        # Redraw all regions
-        self.canvas.delete("region_data_entry", "region_source")
+        # Redraw region
+        self.canvas.delete("region_comparison")
         self.draw_regions()
         
         # Update coordinates display
         self.update_coordinates_display()
         
         self.selecting = False
-        self.status_var.set(f"{self.current_region.replace('_', ' ').title()} region updated: {x1}, {y1}, {x2}, {y2}")
+        self.status_var.set(f"Comparison region updated: {x1}, {y1}, {x2}, {y2}")
     
     def update_coordinates_display(self):
         """Update the coordinates text display"""
         self.coords_text.delete(1.0, tk.END)
         
-        coords_info = "Current Regions:\n\n"
+        coords_info = "Current Region:\n\n"
         
-        for region_name, coords in self.regions.items():
-            coords_info += f"{region_name.replace('_', ' ').title()}:\n"
+        region_name = "comparison"
+        coords = self.regions.get(region_name, [])
+        
+        if coords:
+            coords_info += f"Comparison Area:\n"
             coords_info += f"  X1: {coords[0]}\n"
             coords_info += f"  Y1: {coords[1]}\n"
             coords_info += f"  X2: {coords[2]}\n"
             coords_info += f"  Y2: {coords[3]}\n"
             coords_info += f"  Size: {coords[2]-coords[0]}×{coords[3]-coords[1]}\n\n"
+            coords_info += f"This region should include BOTH\n"
+            coords_info += f"the data entry screen (left) and\n"
+            coords_info += f"the original prescription (right)."
         
         self.coords_text.insert(1.0, coords_info)
     
@@ -369,7 +384,7 @@ class VLMRegionSelector:
                 self.update_coordinates_display()
                 
                 if self.screenshot:
-                    self.canvas.delete("region_data_entry", "region_source")
+                    self.canvas.delete("region_comparison")
                     self.draw_regions()
                 
                 self.status_var.set("Regions loaded from configuration file")

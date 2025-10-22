@@ -57,23 +57,26 @@ def vlm_settings_page(main_config: Dict[str, Any]):
         st.error("❌ Failed to load VLM configuration")
         return
     
-    # Main tabs with prompt customization
-    tab1, tab2, tab3 = st.tabs(["🔧 Model Settings", "📝 Prompt Customization", "🧪 Testing"])
+    # Main tabs with prompt customization and weighted scoring
+    tab1, tab2, tab3, tab4 = st.tabs(["🔧 Model Settings", "⚖️ Weighted Scoring", "📝 Prompt Customization", "🧪 Testing"])
 
     with tab1:
         show_model_settings(vlm_config, vlm_config_file)
 
     with tab2:
-        show_prompt_customization(vlm_config, vlm_config_file)
+        show_weighted_scoring_settings(vlm_config, vlm_config_file)
 
     with tab3:
+        show_prompt_customization(vlm_config, vlm_config_file)
+
+    with tab4:
         show_vlm_testing(vlm_config)
 
 def load_vlm_config(config_file: str) -> Optional[Dict[str, Any]]:
     """Load VLM configuration from file"""
     try:
         if os.path.exists(config_file):
-            with open(config_file, 'r') as f:
+            with open(config_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         else:
             # Create default config if it doesn't exist
@@ -110,8 +113,8 @@ def load_vlm_config(config_file: str) -> Optional[Dict[str, Any]]:
 def save_vlm_config(config: Dict[str, Any], config_file: str) -> bool:
     """Save VLM configuration to file"""
     try:
-        with open(config_file, 'w') as f:
-            json.dump(config, f, indent=2)
+        with open(config_file, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
         return True
     except Exception as e:
         st.error(f"Error saving VLM config: {e}")
@@ -369,6 +372,70 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
                 help="Lower = more consistent, Higher = more creative"
             )
     
+    # Separate comparison model settings
+    with st.expander("🔀 Separate Comparison Model (Optional)", expanded=False):
+        st.info("💡 **Use Case:** If your vision model struggles with comparison logic, use a separate reasoning model for scoring (Step 3/5). For example: Qwen2.5-VL for OCR → GPT OSS 20B for comparison.")
+        
+        use_separate_comparison = st.checkbox(
+            "Enable separate model for comparison",
+            value=vlm_config.get("use_separate_comparison_model", False),
+            help="When enabled, uses a different model for comparison/scoring logic"
+        )
+        
+        # Initialize with defaults
+        comparison_config = vlm_config.get("comparison_model_config", {})
+        comp_base_url = comparison_config.get("base_url", "http://localhost:8081/v1")
+        comp_api_key = comparison_config.get("api_key", "llamacpp")
+        comp_model_name = comparison_config.get("model_name", "your-comparison-model")
+        comp_max_tokens = comparison_config.get("max_tokens", 500)
+        comp_temperature = comparison_config.get("temperature", 0.1)
+        
+        if use_separate_comparison:
+            
+            comp_col1, comp_col2 = st.columns(2)
+            
+            with comp_col1:
+                st.write("**🔗 Comparison Model Connection:**")
+                
+                comp_base_url = st.text_input(
+                    "Comparison Base URL:",
+                    value=comp_base_url,
+                    help="API endpoint for the comparison model"
+                )
+                
+                comp_api_key = st.text_input(
+                    "Comparison API Key:",
+                    value=comp_api_key,
+                    type="password",
+                    help="API key for comparison model"
+                )
+                
+                comp_model_name = st.text_input(
+                    "Comparison Model Name:",
+                    value=comp_model_name,
+                    help="Name of the comparison/reasoning model"
+                )
+            
+            with comp_col2:
+                st.write("**⚙️ Comparison Generation Settings:**")
+                
+                comp_max_tokens = st.number_input(
+                    "Comparison Max Tokens:",
+                    min_value=100,
+                    max_value=2000,
+                    value=comp_max_tokens,
+                    help="Max tokens for comparison responses"
+                )
+                
+                comp_temperature = st.slider(
+                    "Comparison Temperature:",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=comp_temperature,
+                    step=0.1,
+                    help="Temperature for comparison model"
+                )
+    
         # Image capture basics (moved from Advanced)
         with st.expander("🖼️ Image Capture Settings", expanded=False):
             img_col1, img_col2 = st.columns(2)
@@ -404,6 +471,17 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
                 if key.startswith("step") and "prompt" in key:
                     vlm_config["vlm_config"][key] = existing_vlm_config[key]
             
+            # Save separate comparison model settings
+            vlm_config["use_separate_comparison_model"] = use_separate_comparison
+            if use_separate_comparison:
+                vlm_config["comparison_model_config"] = {
+                    "base_url": comp_base_url,
+                    "api_key": comp_api_key,
+                    "model_name": comp_model_name,
+                    "max_tokens": comp_max_tokens,
+                    "temperature": comp_temperature
+                }
+            
             # Persist image settings under vlm_settings (preserve other keys)
             updated_vlm_settings = dict(vlm_settings)
             updated_vlm_settings["image_format"] = image_format
@@ -433,6 +511,238 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
                 st.success("✅ Settings GUI launched! Check for a new window.")
         except Exception as e:
             st.error(f"❌ Failed to launch Settings GUI: {e}")
+
+def show_weighted_scoring_settings(vlm_config: Dict[str, Any], config_file: str):
+    """Show weighted scoring configuration"""
+    
+    st.subheader("⚖️ Weighted Scoring System")
+    st.info("🎯 **Category Scoring:** Define how individual field scores combine into category scores")
+    
+    weighted_config = vlm_config.get("weighted_scoring", {})
+    
+    # Patient Category
+    with st.expander("👤 Patient Category Weights", expanded=True):
+        st.write("**Patient verification combines:**")
+        st.write("- Patient Name")
+        st.write("- Patient Date of Birth (DOB)")
+        
+        patient_weights = weighted_config.get("patient_weights", {"patient_name": 60, "patient_dob": 40})
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            patient_name_weight = st.slider(
+                "Patient Name Weight (%):",
+                min_value=0,
+                max_value=100,
+                value=patient_weights.get("patient_name", 60),
+                step=5,
+                help="Importance of patient name in overall patient score"
+            )
+        
+        with col2:
+            patient_dob_weight = st.slider(
+                "Patient DOB Weight (%):",
+                min_value=0,
+                max_value=100,
+                value=patient_weights.get("patient_dob", 40),
+                step=5,
+                help="Importance of date of birth in overall patient score"
+            )
+        
+        # Normalize patient weights
+        patient_total = patient_name_weight + patient_dob_weight
+        if patient_total != 100:
+            st.warning(f"⚠️ Weights total {patient_total}% (will be normalized to 100%)")
+            patient_name_weight_norm = round(patient_name_weight * 100 / patient_total) if patient_total > 0 else 50
+            patient_dob_weight_norm = 100 - patient_name_weight_norm
+            st.caption(f"Normalized: Name {patient_name_weight_norm}%, DOB {patient_dob_weight_norm}%")
+        else:
+            patient_name_weight_norm = patient_name_weight
+            patient_dob_weight_norm = patient_dob_weight
+    
+    # Prescriber Category
+    with st.expander("👨‍⚕️ Prescriber Category Weights", expanded=True):
+        st.write("**Prescriber verification combines:**")
+        st.write("- Prescriber Name")
+        st.write("- Prescriber NPI Number")
+        st.write("- Prescriber Phone Number")
+        
+        prescriber_weights = weighted_config.get("prescriber_weights", {
+            "prescriber_name": 40, "prescriber_npi": 35, "prescriber_phone": 25
+        })
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            prescriber_name_weight = st.slider(
+                "Prescriber Name (%):",
+                min_value=0,
+                max_value=100,
+                value=prescriber_weights.get("prescriber_name", 40),
+                step=5,
+                help="Importance of prescriber name"
+            )
+        
+        with col2:
+            prescriber_npi_weight = st.slider(
+                "Prescriber NPI (%):",
+                min_value=0,
+                max_value=100,
+                value=prescriber_weights.get("prescriber_npi", 35),
+                step=5,
+                help="Importance of NPI number (most reliable identifier)"
+            )
+        
+        with col3:
+            prescriber_phone_weight = st.slider(
+                "Prescriber Phone (%):",
+                min_value=0,
+                max_value=100,
+                value=prescriber_weights.get("prescriber_phone", 25),
+                step=5,
+                help="Importance of phone number"
+            )
+        
+        # Normalize prescriber weights
+        prescriber_total = prescriber_name_weight + prescriber_npi_weight + prescriber_phone_weight
+        if prescriber_total != 100:
+            st.warning(f"⚠️ Weights total {prescriber_total}% (will be normalized to 100%)")
+            if prescriber_total > 0:
+                prescriber_name_weight_norm = round(prescriber_name_weight * 100 / prescriber_total)
+                prescriber_npi_weight_norm = round(prescriber_npi_weight * 100 / prescriber_total)
+                prescriber_phone_weight_norm = 100 - prescriber_name_weight_norm - prescriber_npi_weight_norm
+            else:
+                prescriber_name_weight_norm, prescriber_npi_weight_norm, prescriber_phone_weight_norm = 40, 35, 25
+            st.caption(f"Normalized: Name {prescriber_name_weight_norm}%, NPI {prescriber_npi_weight_norm}%, Phone {prescriber_phone_weight_norm}%")
+        else:
+            prescriber_name_weight_norm = prescriber_name_weight
+            prescriber_npi_weight_norm = prescriber_npi_weight
+            prescriber_phone_weight_norm = prescriber_phone_weight
+    
+    # Drug Category (single field)
+    with st.expander("💊 Drug Category", expanded=True):
+        st.write("**Drug verification:**")
+        st.write("- Drug Name (100% - single field)")
+        st.info("Drug name is verified as a single field with 100% weight")
+    
+    # Direction Category
+    with st.expander("📋 Direction Category Weights", expanded=True):
+        st.write("**Direction verification combines:**")
+        st.write("- Frequency (how often: daily, twice a day, etc.)")
+        st.write("- Dose Amount (quantity per dose: 1 tablet, 2 capsules, etc.)")
+        
+        direction_weights = weighted_config.get("direction_weights", {"frequency": 50, "dose_amount": 50})
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            direction_frequency_weight = st.slider(
+                "Frequency Weight (%):",
+                min_value=0,
+                max_value=100,
+                value=direction_weights.get("frequency", 50),
+                step=5,
+                help="Importance of dosing frequency (e.g., twice daily)"
+            )
+        
+        with col2:
+            direction_dose_weight = st.slider(
+                "Dose Amount Weight (%):",
+                min_value=0,
+                max_value=100,
+                value=direction_weights.get("dose_amount", 50),
+                step=5,
+                help="Importance of amount per dose (e.g., 1 tablet)"
+            )
+        
+        # Normalize direction weights
+        direction_total = direction_frequency_weight + direction_dose_weight
+        if direction_total != 100:
+            st.warning(f"⚠️ Weights total {direction_total}% (will be normalized to 100%)")
+            direction_frequency_weight_norm = round(direction_frequency_weight * 100 / direction_total) if direction_total > 0 else 50
+            direction_dose_weight_norm = 100 - direction_frequency_weight_norm
+            st.caption(f"Normalized: Frequency {direction_frequency_weight_norm}%, Dose {direction_dose_weight_norm}%")
+        else:
+            direction_frequency_weight_norm = direction_frequency_weight
+            direction_dose_weight_norm = direction_dose_weight
+    
+    # Category Pass Thresholds
+    st.markdown("---")
+    with st.expander("🎯 Category Pass Thresholds", expanded=True):
+        st.write("**Minimum scores required for each category to pass:**")
+        
+        thresholds = weighted_config.get("category_thresholds", {
+            "patient_pass": 90, "prescriber_pass": 85, "drug_pass": 95, "direction_pass": 90
+        })
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            patient_pass = st.slider(
+                "Patient Pass Threshold:",
+                min_value=0,
+                max_value=100,
+                value=thresholds.get("patient_pass", 90),
+                step=5,
+                help="Minimum patient score to pass verification"
+            )
+            
+            prescriber_pass = st.slider(
+                "Prescriber Pass Threshold:",
+                min_value=0,
+                max_value=100,
+                value=thresholds.get("prescriber_pass", 85),
+                step=5,
+                help="Minimum prescriber score to pass verification"
+            )
+        
+        with col2:
+            drug_pass = st.slider(
+                "Drug Pass Threshold:",
+                min_value=0,
+                max_value=100,
+                value=thresholds.get("drug_pass", 95),
+                step=5,
+                help="Minimum drug score to pass (should be high for safety)"
+            )
+            
+            direction_pass = st.slider(
+                "Direction Pass Threshold:",
+                min_value=0,
+                max_value=100,
+                value=thresholds.get("direction_pass", 90),
+                step=5,
+                help="Minimum direction score to pass verification"
+            )
+    
+    # Save button
+    if st.button("💾 Save Weighted Scoring Settings", type="primary"):
+        vlm_config["weighted_scoring"] = {
+            "patient_weights": {
+                "patient_name": patient_name_weight_norm,
+                "patient_dob": patient_dob_weight_norm
+            },
+            "prescriber_weights": {
+                "prescriber_name": prescriber_name_weight_norm,
+                "prescriber_npi": prescriber_npi_weight_norm,
+                "prescriber_phone": prescriber_phone_weight_norm
+            },
+            "drug_weights": {
+                "drug_name": 100
+            },
+            "direction_weights": {
+                "frequency": direction_frequency_weight_norm,
+                "dose_amount": direction_dose_weight_norm
+            },
+            "category_thresholds": {
+                "patient_pass": patient_pass,
+                "prescriber_pass": prescriber_pass,
+                "drug_pass": drug_pass,
+                "direction_pass": direction_pass
+            }
+        }
+        
+        save_vlm_config(vlm_config, config_file)
+        st.success("✅ Weighted scoring settings saved!")
+        time.sleep(1)
+        st.rerun()
 
 def show_region_setup(vlm_config: Dict[str, Any], config_file: str):
     """Show region setup for VLM screenshots"""
@@ -597,84 +907,228 @@ def capture_and_show_region(vlm_config: Dict[str, Any], region_name: str, displa
         st.error(f"❌ Error capturing {display_name}: {e}")
 
 def run_complete_vlm_test(vlm_config: Dict[str, Any]):
-    """Run a complete VLM verification test"""
+    """Run a complete VLM verification test with detailed debug output"""
     try:
         from ai.vlm_verifier import VLM_Verifier
+        import logging
+        import io
         
         st.info("🔄 Running complete VLM verification test...")
         
-        verifier = VLM_Verifier(vlm_config)
+        # Create a custom logger to capture VLM debug output
+        vlm_debug_log = io.StringIO()
+        debug_handler = logging.StreamHandler(vlm_debug_log)
+        debug_handler.setLevel(logging.DEBUG)
+        debug_formatter = logging.Formatter('%(levelname)s - %(message)s')
+        debug_handler.setFormatter(debug_formatter)
         
-        # Show progress
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        # Get the VLM logger and add our handler
+        vlm_logger = logging.getLogger('ai.vlm_verifier')
+        original_level = vlm_logger.level
+        vlm_logger.setLevel(logging.DEBUG)
+        vlm_logger.addHandler(debug_handler)
         
-        status_text.text("📸 Capturing screenshots...")
-        progress_bar.progress(25)
-        
-        # Capture regions
-        data_entry_img = verifier.capture_region_screenshot("data_entry")
-        source_img = verifier.capture_region_screenshot("source")
-        
-        if not data_entry_img or not source_img:
-            st.error("❌ Failed to capture required screenshots")
-            return
-        
-        status_text.text("🤖 Running VLM verification...")
-        progress_bar.progress(50)
-        
-        # Run verification
-        scores = verifier.verify_with_vlm()
-        
-        progress_bar.progress(100)
-        status_text.text("✅ VLM verification complete!")
-        
-        # Show results
-        st.write("**🎯 Verification Results:**")
-        
-        if scores:
-            col1, col2 = st.columns(2)
+        try:
+            verifier = VLM_Verifier(vlm_config)
             
-            with col1:
-                st.write("**📊 Field Scores:**")
-                for field, score in scores.items():
-                    field_display = field.replace('_', ' ').title()
-                    
-                    # Color code the score
-                    if score >= 90:
-                        st.success(f"✅ {field_display}: {score}%")
-                    elif score >= 70:
-                        st.warning(f"⚠️ {field_display}: {score}%")
-                    else:
-                        st.error(f"❌ {field_display}: {score}%")
+            # Show progress
+            progress_bar = st.progress(0)
+            status_text = st.empty()
             
-            with col2:
-                st.write("**📈 Summary:**")
-                total_fields = len(scores)
-                avg_score = sum(scores.values()) / total_fields if total_fields > 0 else 0
-                high_scores = sum(1 for score in scores.values() if score >= 90)
+            status_text.text("📸 Capturing screenshots...")
+            progress_bar.progress(25)
+            
+            # Capture regions
+            data_entry_img = verifier.capture_region_screenshot("data_entry")
+            source_img = verifier.capture_region_screenshot("source")
+            
+            if not data_entry_img or not source_img:
+                st.error("❌ Failed to capture required screenshots")
+                return
+            
+            status_text.text("🤖 Running VLM verification...")
+            progress_bar.progress(50)
+            
+            # Run verification
+            scores = verifier.verify_with_vlm()
+            
+            progress_bar.progress(100)
+            status_text.text("✅ VLM verification complete!")
+            
+            # Show results
+            st.write("**🎯 Verification Results:**")
+            
+            if scores:
+                # Display category scores (weighted) - these are what the main app uses
+                st.write("**📊 Final Category Scores (Weighted - Used by Main App):**")
                 
-                st.metric("Total Fields", total_fields)
-                st.metric("Average Score", f"{avg_score:.1f}%")
-                st.metric("High Confidence", f"{high_scores}/{total_fields}")
-        else:
-            st.warning("⚠️ No scores returned from VLM")
-            st.info("This might indicate an issue with the model or configuration")
+                # Create columns dynamically based on number of categories
+                num_categories = len(scores)
+                cols = st.columns(num_categories) if num_categories > 0 else st.columns(1)
+                
+                for idx, (category, score) in enumerate(scores.items()):
+                    # Prevent index out of range
+                    if idx >= len(cols):
+                        break
+                        
+                    with cols[idx]:
+                        category_display = category.replace('_', ' ').title()
+                        
+                        # Color code the score
+                        if score >= 90:
+                            st.success(f"✅ **{category_display}**")
+                            st.metric("", f"{score}%")
+                        elif score >= 70:
+                            st.warning(f"⚠️ **{category_display}**")
+                            st.metric("", f"{score}%")
+                        else:
+                            st.error(f"❌ **{category_display}**")
+                            st.metric("", f"{score}%")
+                
+                # Extract and show individual field scores from debug log
+                debug_output = vlm_debug_log.getvalue()
+                if "Step3: Field scores:" in debug_output:
+                    import re
+                    field_score_match = re.search(r"Step3: Field scores: (\{.*?\})", debug_output)
+                    if field_score_match:
+                        try:
+                            field_scores_dict_str = field_score_match.group(1)
+                            # Convert string representation to dict
+                            field_scores = eval(field_scores_dict_str)
+                            
+                            st.write("---")
+                            st.write("**🔍 Individual Field Scores (Before Weighting):**")
+                            
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                st.write("**👤 Patient:**")
+                                st.text(f"Name: {field_scores.get('patient_name', 0)}%")
+                                st.text(f"DOB: {field_scores.get('patient_dob', 0)}%")
+                            
+                            with col2:
+                                st.write("**👨‍⚕️ Prescriber:**")
+                                st.text(f"Name: {field_scores.get('prescriber_name', 0)}%")
+                                st.text(f"Phone: {field_scores.get('prescriber_phone', 0)}%")
+                                st.text(f"NPI: {field_scores.get('prescriber_npi', 0)}%")
+                            
+                            with col3:
+                                st.write("**💊 Drug:**")
+                                st.text(f"Name: {field_scores.get('drug_name', 0)}%")
+                            
+                            with col4:
+                                st.write("**📋 Direction:**")
+                                st.text(f"Frequency: {field_scores.get('direction_frequency', 0)}%")
+                                st.text(f"Dose: {field_scores.get('direction_dose', 0)}%")
+                        except:
+                            pass  # If parsing fails, just skip field score display
+                
+                # Summary stats
+                st.write("---")
+                st.write("**📈 Overall Summary:**")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    total_categories = len(scores)
+                    st.metric("Total Categories", total_categories)
+                
+                with col2:
+                    avg_score = sum(scores.values()) / total_categories if total_categories > 0 else 0
+                    st.metric("Average Score", f"{avg_score:.1f}%")
+                
+                with col3:
+                    high_scores = sum(1 for score in scores.values() if score >= 90)
+                    st.metric("Passing Categories", f"{high_scores}/{total_categories}")
+            else:
+                st.warning("⚠️ No scores returned from VLM")
+                st.info("This might indicate an issue with the model or configuration")
+            
+            # Show captured images
+            st.write("**📸 Captured Images:**")
+            col3, col4 = st.columns(2)
+            
+            with col3:
+                st.image(data_entry_img, caption="Data Entry Region", use_column_width=True)
+            
+            with col4:
+                st.image(source_img, caption="Source Region", use_column_width=True)
+            
+            # Show VLM debug output with all responses
+            st.write("---")
+            st.write("**🔍 VLM Debug Information:**")
+            
+            # Get the captured log output
+            debug_output = vlm_debug_log.getvalue()
+            
+            # Parse and display VLM responses
+            if debug_output:
+                # Create expander for detailed debug log
+                with st.expander("📋 Complete Debug Log", expanded=False):
+                    st.code(debug_output, language="text")
+                
+                # Extract and highlight VLM responses
+                st.write("**🤖 VLM Model Responses:**")
+                
+                # Extract LEFT image response (Step 1)
+                if "LEFT extraction raw:" in debug_output:
+                    left_start = debug_output.find("LEFT extraction raw:") + len("LEFT extraction raw:")
+                    left_end = debug_output.find("DEBUG - LEFT extracted:", left_start)
+                    if left_end == -1:
+                        left_end = debug_output.find("\n", left_start + 200)
+                    left_response = debug_output[left_start:left_end].strip()
+                    
+                    with st.expander("📤 Step 1: LEFT Image Extraction Response", expanded=True):
+                        st.write("*What the VLM saw in the data entry (LEFT) image:*")
+                        st.code(left_response, language="json")
+                
+                # Extract RIGHT image response (Step 2)
+                if "RIGHT extraction raw:" in debug_output:
+                    right_start = debug_output.find("RIGHT extraction raw:") + len("RIGHT extraction raw:")
+                    right_end = debug_output.find("DEBUG - RIGHT extracted:", right_start)
+                    if right_end == -1:
+                        right_end = debug_output.find("\n", right_start + 200)
+                    right_response = debug_output[right_start:right_end].strip()
+                    
+                    with st.expander("📥 Step 2: RIGHT Image Extraction Response", expanded=True):
+                        st.write("*What the VLM saw in the source prescription (RIGHT) image:*")
+                        st.code(right_response, language="json")
+                
+                # Extract scoring response (Step 3)
+                if "Step3 raw response:" in debug_output:
+                    score_start = debug_output.find("Step3 raw response:") + len("Step3 raw response:")
+                    score_end = debug_output.find("DEBUG - Step3:", score_start)
+                    if score_end == -1:
+                        score_end = debug_output.find("\n", score_start + 200)
+                    score_response = debug_output[score_start:score_end].strip()
+                    
+                    with st.expander("🎯 Step 3: Comparison & Scoring Response", expanded=True):
+                        st.write("*How the VLM compared LEFT data with RIGHT data:*")
+                        st.code(score_response, language="json")
+                
+                # Show any warnings or errors
+                if "WARNING" in debug_output or "ERROR" in debug_output:
+                    st.write("**⚠️ Warnings/Errors:**")
+                    warnings = [line for line in debug_output.split('\n') if 'WARNING' in line or 'ERROR' in line]
+                    for warning in warnings:
+                        if 'ERROR' in warning:
+                            st.error(warning)
+                        else:
+                            st.warning(warning)
+            else:
+                st.info("No debug output captured. Enable debug logging in VLM settings for detailed output.")
         
-        # Show captured images
-        st.write("**📸 Captured Images:**")
-        col3, col4 = st.columns(2)
-        
-        with col3:
-            st.image(data_entry_img, caption="Data Entry Region", use_column_width=True)
-        
-        with col4:
-            st.image(source_img, caption="Source Region", use_column_width=True)
+        finally:
+            # Restore original logger settings
+            vlm_logger.removeHandler(debug_handler)
+            vlm_logger.setLevel(original_level)
+            debug_handler.close()
             
     except ImportError:
         st.error("❌ VLM Verifier module not available")
     except Exception as e:
         st.error(f"❌ Error running VLM test: {e}")
+        import traceback
+        st.code(traceback.format_exc(), language="text")
 
 def show_advanced_settings(vlm_config: Dict[str, Any], config_file: str):
     """Show advanced VLM settings"""

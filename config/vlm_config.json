@@ -2,28 +2,18 @@
   "vlm_config": {
     "base_url": "http://10.147.17.98:1234/v1",
     "api_key": "",
-    "model_name": "",
-    "max_tokens": 2000,
-    "temperature": 0.0,
-    "step1_system_prompt": "You are a pharmacy prescription verification assistant. Extract data from the LEFT side image ONLY. CRITICAL: Respond with ONLY valid JSON. No explanations, no markdown, no extra text.",
-    "step1_user_prompt": "Look at the LEFT side image (entered data) and extract these fields from the color-coded areas:\n\n- GREEN area: Patient name\n- GREEN area: Patient date of birth (DOB)\n- YELLOW area: Prescriber name\n- BLUE area: Drug/medication name\n- BLUE area: Directions/sig\n\nYour response must be EXACTLY this JSON format with no additional text:\n{\n  \"patient_name\": \"actual text you see\",\n  \"patient_dob\": \"actual DOB you see or null\",\n  \"prescriber_name\": \"actual prescriber you see\",\n  \"drug_name\": \"actual drug you see\",\n  \"direction_sig\": \"actual directions you see\"\n}",
-    "step2_system_prompt": "You are a pharmacy prescription verification assistant. Extract ALL prescription information from the RIGHT side image. CRITICAL: Respond with ONLY valid JSON. No explanations, no markdown, no extra text. BE HONEST about missing information.",
-    "step2_user_prompt": "Look at the RIGHT side image (original prescription) and extract ALL available information:\n\n- Patient name (anywhere on prescription)\n- Patient date of birth/DOB (if visible)\n- Prescriber name/doctor name (anywhere)\n- Drug/medication name\n- Directions/sig/instructions\n- Any other relevant prescription details\n\nIMPORTANT: If information is NOT visible or missing, use null (not empty string).\n- If no prescriber name is visible -> \"prescriber_name\": null\n- If no directions/sig are visible -> \"direction_sig\": null\n- If no DOB is visible -> \"patient_dob\": null\n\nYour response must be EXACTLY this JSON format with no additional text:\n{\n  \"patient_name\": \"actual patient name or null\",\n  \"patient_dob\": \"actual DOB or null\",\n  \"prescriber_name\": \"actual prescriber or null\",\n  \"drug_name\": \"actual drug or null\",\n  \"direction_sig\": \"actual directions or null\",\n  \"other_info\": \"any other relevant details or null\"\n}",
-    "step3_system_prompt": "You are a pharmacy prescription verification assistant. Search and match prescription data with intelligent scoring. CRITICAL: Respond with ONLY valid JSON. No explanations, no markdown, no extra text. Use ONLY scores: 0, 50, 95, or 100. BE STRICT about missing information.",
-    "step3_user_prompt": "SEARCH TASK: Look for LEFT side information within the RIGHT side data.\n\nLEFT (entered data):\n{left_data}\n\nRIGHT (original prescription):\n{right_data}\n\nFor each LEFT field, search if it matches anything in RIGHT data:\n\nMATCHING RULES:\n- Patient names: \"Last, First\" = \"First Last\" = EXACT MATCH (100)\n- DOB: Must match exactly (MM/DD/YYYY format variations OK)\n- Prescriber: Ignore titles (Dr., MD, NP, RPh, DO) - same person = 100\n- Drug: Same medication = 100, similar = 95, different = 50\n- Directions: Same meaning = 100, similar = 95, different = 50\n\nCRITICAL MISSING DATA RULES:\n- If LEFT has data but RIGHT has null/empty/missing -> Score = 0\n- If LEFT has prescriber but RIGHT shows no prescriber info -> Score = 0  \n- If LEFT has directions but RIGHT shows no directions/sig -> Score = 0\n- If a field is truly missing from RIGHT image, it cannot match -> Score = 0\n\nSCORING (use ONLY these exact numbers):\n- 100 = Perfect match found\n- 95 = Similar/equivalent match\n- 50 = Different but valid data\n- 0 = No match, failed extraction, or missing data\n\nYour response must be EXACTLY this JSON format with no additional text:\n{\n  \"patient_name\": 100,\n  \"patient_dob\": 100,\n  \"prescriber_name\": 0,\n  \"drug_name\": 100,\n  \"direction_sig\": 0\n}"
+    "model_name": "gemma-3-12b",
+    "oneshot_system_prompt": "You are a pharmacy prescription verification agent. Compare the prescription data and provide accurate matching scores.",
+    "oneshot_user_prompt": "You are a pharmacy prescription verify agent, in the screenshot left side is what entered, right side is the original prescription. Please give me a matching score between 0-100 of patient, prescriber, drug, and direction. Only give score in following format, no reasoning, no explanation.\n{\n  \"patient\": score,\n  \"prescriber\": score,\n  \"drug\": score,\n  \"direction\": score\n}",
+    "max_tokens": 500,
+    "temperature": 0.0
   },
   "vlm_regions": {
-    "data_entry": [
+    "comparison": [
       15,
       132,
-      394,
-      966
-    ],
-    "source": [
-      408,
-      185,
       1314,
-      940
+      966
     ]
   },
   "vlm_settings": {
@@ -39,5 +29,29 @@
     "max_image_tokens_total": 3072,
     "max_image_tokens_per_image": 1536,
     "debug_save_images": true
+  },
+  "weighted_scoring": {
+    "patient_weights": {
+      "patient_name": 60,
+      "patient_dob": 40
+    },
+    "prescriber_weights": {
+      "prescriber_name": 40,
+      "prescriber_npi": 35,
+      "prescriber_phone": 25
+    },
+    "drug_weights": {
+      "drug_name": 100
+    },
+    "direction_weights": {
+      "frequency": 50,
+      "dose_amount": 50
+    },
+    "category_thresholds": {
+      "patient_pass": 90,
+      "prescriber_pass": 85,
+      "drug_pass": 95,
+      "direction_pass": 90
+    }
   }
 }

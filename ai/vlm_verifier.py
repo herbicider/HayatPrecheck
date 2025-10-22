@@ -17,10 +17,27 @@ class VLM_Verifier:
         self.regions = vlm_config.get("vlm_regions", {})
         self.settings = vlm_config.get("vlm_settings", {})
         
+        # Main VLM client (for vision/OCR tasks)
         self.client = openai.OpenAI(
             base_url=self.config.get("base_url", "http://localhost:11434/v1"),
             api_key=self.config.get("api_key", "ollama"),
         )
+        
+        # Separate comparison client if enabled (read from root level of vlm_config)
+        self.use_separate_comparison = vlm_config.get("use_separate_comparison_model", False)
+        if self.use_separate_comparison:
+            comparison_config = vlm_config.get("comparison_model_config", {})
+            self.comparison_client = openai.OpenAI(
+                base_url=comparison_config.get("base_url", "http://localhost:1234/v1"),
+                api_key=comparison_config.get("api_key", ""),
+            )
+            self.comparison_model = comparison_config.get("model_name", "")
+            self.comparison_max_tokens = comparison_config.get("max_tokens", 1000)
+            self.comparison_temperature = comparison_config.get("temperature", 0.0)
+            self.logger = logging.getLogger(__name__)
+            self.logger.info(f"VLM: Using separate comparison model: {self.comparison_model} at {comparison_config.get('base_url')}")
+        else:
+            self.comparison_client = None
         
         self.logger = logging.getLogger(__name__)
 
@@ -435,64 +452,44 @@ class VLM_Verifier:
 
     def verify_with_vlm(self) -> Dict[str, int]:
         """
-        FIVE-STEP VLM verification with DOB support:
-        1. Send LEFT image  
-        2. Extract from LEFT (patient name, DOB, prescriber, drug, directions)
-        3. Send RIGHT image
-        4. Extract ALL info from RIGHT 
-        5. Search LEFT info in RIGHT and score matches
+        SINGLE-SHOT VLM verification (optimized for 12B+ models):
+        1. Capture one screenshot with both left (data entry) and right (source) visible
+        2. Send single image with direct comparison prompt
+        3. AI returns scores in one response
         
         Returns:
             Dictionary with scores for each field found
         """
         try:
-            # Step 1: Capture LEFT image (data entry)
-            self.logger.debug("VLM: Step 1 - Capturing LEFT image (data entry)")
-            data_entry_img = self.capture_region_screenshot("data_entry")
-            if not data_entry_img:
-                self.logger.error("VLM: Failed to capture LEFT image")
+            # Step 1: Capture single screenshot of both regions
+            self.logger.debug("VLM: Capturing comparison screenshot")
+            comparison_img = self.capture_region_screenshot("comparison")
+            if not comparison_img:
+                self.logger.error("VLM: Failed to capture comparison screenshot")
                 return {}
             
-            # Step 2: Extract from LEFT image only 
-            self.logger.debug("VLM: Step 2 - Extracting from LEFT image")
-            data_entry_img = self._prepare_single_image(data_entry_img)
-            left_data = self._extract_from_left_image(data_entry_img)
-            if not left_data:
-                self.logger.error("VLM: Failed to extract from LEFT image")
+            # Step 2: Prepare image (resize, enhance, encode)
+            self.logger.debug("VLM: Preparing image for API")
+            comparison_b64 = self._prepare_single_image(comparison_img)
+            if not comparison_b64:
+                self.logger.error("VLM: Failed to prepare image")
                 return {}
             
-            # Step 3: Capture RIGHT image (source prescription)
-            self.logger.debug("VLM: Step 3 - Capturing RIGHT image (source)")
-            source_img = self.capture_region_screenshot("source")
-            if not source_img:
-                self.logger.error("VLM: Failed to capture RIGHT image")
-                return {}
-            
-            # Step 4: Extract ALL info from RIGHT image
-            self.logger.debug("VLM: Step 4 - Extracting ALL info from RIGHT image")
-            source_img = self._prepare_single_image(source_img)
-            right_data = self._extract_from_right_image(source_img)
-            if not right_data:
-                self.logger.error("VLM: Failed to extract from RIGHT image")
-                return {}
-            
-            # Step 5: Search LEFT info in RIGHT and score matches
-            self.logger.debug("VLM: Step 5 - Searching and scoring matches")
-            scores = self._search_and_score_matches(left_data, right_data)
+            # Step 3: Single API call with direct comparison
+            self.logger.debug("VLM: Sending single-shot comparison request")
+            scores = self._single_shot_comparison(comparison_b64)
             
             # Log final results
             self.logger.info("=== VLM VERIFICATION RESULTS ===")
             for field, score in scores.items():
-                if score == 0:
-                    status = "FAILED"
-                elif score == 50:
-                    status = "REVIEW"
-                elif score == 95:
+                if score >= 95:
+                    status = "PASS ✓"
+                elif score >= 85:
                     status = "ACCEPTABLE"
-                elif score == 100:
-                    status = "PERFECT"
+                elif score >= 70:
+                    status = "REVIEW"
                 else:
-                    status = "UNKNOWN"
+                    status = "FAIL ✗"
                 
                 self.logger.info(f"  {field}: {score}% ({status})")
             
@@ -504,7 +501,7 @@ class VLM_Verifier:
             self.logger.error(f"[VLM Error] Model: {self.config.get('model_name')}")
             self.logger.error(f"[VLM Error] Base URL: {self.config.get('base_url')}")
             
-                        # Return empty dict on error
+            # Return empty dict on error
             return {}
     
     def _prepare_single_image(self, image: Image.Image) -> str:
@@ -532,6 +529,90 @@ class VLM_Verifier:
         except Exception as e:
             self.logger.error(f"Failed to prepare image: {e}")
             return ""
+    
+    def _single_shot_comparison(self, image_b64: str) -> Dict[str, int]:
+        """
+        Single-shot comparison with direct scoring (optimized for 12B+ models).
+        Uses your proven prompt format for consistent JSON responses.
+        """
+        try:
+            import json
+            
+            # Get configurable prompt (with sensible default)
+            system_prompt = self.config.get("oneshot_system_prompt", 
+                "You are a pharmacy prescription verification agent. Compare the prescription data and provide accurate matching scores.")
+            
+            user_prompt = self.config.get("oneshot_user_prompt", 
+                """You are a pharmacy prescription verify agent. In the screenshot, the left side is what was entered, the right side is the original prescription.
+
+Please give me a matching score between 0-100 for:
+- patient: How well does the patient information match?
+- prescriber: How well does the prescriber information match?
+- drug: How well does the drug information match?
+- direction: How well do the directions match?
+
+Return your response in this exact JSON format (no reasoning, no explanation):
+{
+  "patient": score,
+  "prescriber": score,
+  "drug": score,
+  "direction": score
+}""")
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
+                    ]
+                }
+            ]
+            
+            # Call API
+            chat_completion = self.client.chat.completions.create(
+                messages=messages,
+                model=self.config.get("model_name", ""),
+                max_tokens=self.config.get("max_tokens", 500),
+                temperature=self.config.get("temperature", 0.0)
+            )
+            
+            response_content = chat_completion.choices[0].message.content or ""
+            self.logger.debug(f"Single-shot raw response: {response_content}")
+            
+            # Validate and parse response
+            if not self._validate_vlm_response(response_content, "single-shot"):
+                self.logger.error("Single-shot: Response validation failed")
+                return self._get_default_category_scores()
+            
+            # Parse JSON response
+            scores = self._robust_json_parse(response_content, "single-shot")
+            if not scores:
+                self.logger.error("Single-shot: Failed to parse JSON")
+                return self._get_default_category_scores()
+            
+            # Ensure all required fields are present
+            default_scores = self._get_default_category_scores()
+            final_scores = {}
+            for field in default_scores.keys():
+                if field in scores:
+                    # Validate score is integer between 0-100
+                    try:
+                        score_value = int(scores[field])
+                        final_scores[field] = max(0, min(100, score_value))
+                    except (ValueError, TypeError):
+                        self.logger.warning(f"Invalid score for {field}: {scores[field]}, using 0")
+                        final_scores[field] = 0
+                else:
+                    self.logger.warning(f"Missing score for {field}, using 0")
+                    final_scores[field] = 0
+            
+            return final_scores
+            
+        except Exception as e:
+            self.logger.error(f"Single-shot comparison failed: {e}")
+            return self._get_default_category_scores()
     
     def _extract_from_left_image(self, data_entry_b64: str) -> Dict[str, str]:
         """Extract fields from LEFT image using Step 1 prompts"""
@@ -819,7 +900,7 @@ class VLM_Verifier:
             return {}
 
     def _search_and_score_matches(self, left_data: Dict[str, str], right_data: Dict[str, str]) -> Dict[str, int]:
-        """Search LEFT info in RIGHT data and score matches using Step 3 prompts"""
+        """Ask AI to directly return 4 category scores: patient, prescriber, drug, direction"""
         response_content = ""
         try:
             import json
@@ -827,8 +908,8 @@ class VLM_Verifier:
             
             # Use customizable prompts from config
             vlm_model_config = self.config.get("vlm_config", {})
-            system_prompt = vlm_model_config.get("step3_system_prompt", "Search and score matches.")
-            user_prompt = vlm_model_config.get("step3_user_prompt", "Search LEFT data in RIGHT data and score.")
+            system_prompt = vlm_model_config.get("step3_system_prompt", "Return JSON scores.")
+            user_prompt = vlm_model_config.get("step3_user_prompt", "Compare and score.")
             
             # Format the prompt with actual data
             formatted_prompt = user_prompt.format(
@@ -836,108 +917,288 @@ class VLM_Verifier:
                 right_data=json.dumps(right_data, indent=2)
             )
             
-            # Enhanced system prompt to enforce JSON format
-            enhanced_system_prompt = f"""{system_prompt}
-
-CRITICAL: You MUST respond with ONLY a valid JSON object. No explanations, no markdown, no extra text.
-Your response must be exactly in this format:
-{{
-  "patient_name": 100,
-  "patient_dob": 100,
-  "prescriber_name": 95,
-  "drug_name": 100,
-  "direction_sig": 100
-}}
-
-Use only these exact scores: 0, 50, 95, or 100. Nothing else."""
-            
+            # Use the custom prompts as-is
             messages = [
-                {"role": "system", "content": enhanced_system_prompt},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": formatted_prompt}
             ]
             
-            # Call OpenAI API
-            chat_completion = self.client.chat.completions.create(
-                messages=messages,
-                model=self.config.get("model_name", ""),
-                max_tokens=self.config.get("max_tokens", 200),
-                temperature=self.config.get("temperature", 0.0)
-            )
+            # Log what we're sending to the AI for debugging
+            self.logger.debug(f"Step3: === PROMPT SENT TO AI ===")
+            self.logger.debug(f"Step3: FULL System Prompt:\n{system_prompt}")
+            self.logger.debug(f"Step3: FULL User Prompt:\n{formatted_prompt}")
+            self.logger.debug(f"Step3: Full LEFT data: {json.dumps(left_data, indent=2)}")
+            self.logger.debug(f"Step3: Full RIGHT data: {json.dumps(right_data, indent=2)}")
+            
+            # Use separate comparison client if enabled, otherwise use main VLM client
+            if self.use_separate_comparison and self.comparison_client:
+                self.logger.debug(f"Step3: Using separate comparison model: {self.comparison_model}")
+                chat_completion = self.comparison_client.chat.completions.create(
+                    messages=messages,
+                    model=self.comparison_model,
+                    max_tokens=self.comparison_max_tokens,
+                    temperature=self.comparison_temperature
+                )
+            else:
+                self.logger.debug("Step3: Using main VLM client for comparison")
+                chat_completion = self.client.chat.completions.create(
+                    messages=messages,
+                    model=self.config.get("model_name", ""),
+                    max_tokens=self.config.get("max_tokens", 300),
+                    temperature=self.config.get("temperature", 0.0)
+                )
             
             response_content = chat_completion.choices[0].message.content or ""
+            self.logger.debug(f"Step3: === AI RESPONSE ===")
             self.logger.debug(f"Step3 raw response: {response_content}")
             
             # Validate response before parsing
             if not self._validate_vlm_response(response_content, "Step3"):
                 self.logger.error("Step3: Response validation failed")
-                return {"patient_name": 0, "patient_dob": 0, "prescriber_name": 0, "drug_name": 0, "direction_sig": 0}
+                return self._get_default_category_scores()
             
             # Use robust JSON parsing
-            scores_data = self._robust_json_parse(response_content, "Step3")
+            category_scores = self._robust_json_parse(response_content, "Step3")
             
-            if not scores_data:
+            if not category_scores:
                 self.logger.error("Step3: No valid JSON data extracted, using fallback")
-                return {"patient_name": 0, "patient_dob": 0, "prescriber_name": 0, "drug_name": 0, "direction_sig": 0}
+                return self._get_default_category_scores()
             
-            # Validate and normalize scores with strict missing data checks
+            # Validate we have the 4 expected categories
+            expected_categories = ["patient", "prescriber", "drug", "direction"]
             validated_scores = {}
-            expected_fields = ["patient_name", "patient_dob", "prescriber_name", "drug_name", "direction_sig"]
             
-            for field in expected_fields:
-                score = scores_data.get(field, 0)
-                
-                # Ensure score is numeric
+            for category in expected_categories:
+                score = category_scores.get(category, 0)
                 try:
                     score = int(float(score))
+                    score = max(0, min(100, score))
                 except (ValueError, TypeError):
-                    self.logger.warning(f"Step3: Invalid score '{score}' for {field}, defaulting to 0")
+                    self.logger.warning(f"Step3: Invalid score '{score}' for {category}, defaulting to 0")
                     score = 0
-                
-                # STRICT MISSING DATA VALIDATION
-                # Check if we're trying to score a field that's missing in the right data
-                right_field_value = right_data.get(field)
-                left_field_value = left_data.get(field)
-                
-                if score > 0:  # Only validate if we're giving a positive score
-                    # Check for explicitly null or missing right data
-                    if (right_field_value is None or 
-                        right_field_value == "null" or 
-                        right_field_value == "" or
-                        str(right_field_value).lower().strip() in ["null", "none", "n/a", "not available", "missing"]):
-                        
-                        # But left side has data
-                        if (left_field_value and 
-                            left_field_value != "null" and 
-                            left_field_value != "" and
-                            str(left_field_value).lower().strip() not in ["null", "none", "n/a"]):
-                            
-                            self.logger.warning(f"Step3: {field} - LEFT has data '{left_field_value}' but RIGHT is missing/null '{right_field_value}'. Forcing score to 0")
-                            score = 0
-                
-                # Validate score range and round to nearest valid value
-                valid_scores = [0, 50, 95, 100]
-                if score not in valid_scores:
-                    original_score = score
-                    if score < 25:
-                        score = 0
-                    elif score < 72:
-                        score = 50
-                    elif score < 97:
-                        score = 95
-                    else:
-                        score = 100
-                    self.logger.info(f"Step3: Rounded score {original_score} -> {score} for {field}")
-                
-                validated_scores[field] = score
+                validated_scores[category] = score
             
-            self.logger.debug(f"Step3: Final validated scores: {validated_scores}")
+            self.logger.debug(f"Step3: Category scores: {validated_scores}")
+            
             return validated_scores
+            self.logger.debug(f"Step3: Field scores: {validated_field_scores}")
+            self.logger.debug(f"Step3: Weighted category scores: {category_scores}")
+            
+            return category_scores
             
         except Exception as e:
             self.logger.error(f"Failed to search and score matches: {e}")
             self.logger.error(f"Step3: Raw response was: {response_content}")
-            return {"patient_name": 0, "patient_dob": 0, "prescriber_name": 0, "drug_name": 0, "direction_sig": 0}
+            return self._get_default_category_scores()
+    
+    def _validate_field_scores(self, scores_data: Dict[str, int], left_data: Dict[str, str], right_data: Dict[str, str]) -> Dict[str, int]:
+        """Validate individual field scores - minimal intervention, trust the AI"""
+        
+        # First, parse direction_sig into frequency and dose if VLM didn't provide them
+        self._parse_direction_components(left_data, right_data, scores_data)
+        
+        validated_scores = {}
+        expected_fields = [
+            "patient_name", "patient_dob", 
+            "prescriber_name", "prescriber_phone", "prescriber_npi",
+            "drug_name",
+            "direction_frequency", "direction_dose"
+        ]
+        
+        for field in expected_fields:
+            score = scores_data.get(field, 0)
+            
+            # Ensure score is numeric
+            try:
+                score = int(float(score))
+            except (ValueError, TypeError):
+                self.logger.warning(f"Step3: Invalid score '{score}' for {field}, defaulting to 0")
+                score = 0
+            
+            # Trust the AI's score without rounding or normalization
+            # Clamp to valid range 0-100
+            score = max(0, min(100, score))
+            
+            validated_scores[field] = score
+        
+        return validated_scores
+    
+    def _calculate_weighted_scores(self, field_scores: Dict[str, int]) -> Dict[str, int]:
+        """Calculate weighted category scores from individual field scores"""
+        weighted_config = self.config.get("weighted_scoring", {})
+        
+        # Get weights from config with defaults
+        patient_weights = weighted_config.get("patient_weights", {
+            "patient_name": 60,
+            "patient_dob": 40
+        })
+        
+        prescriber_weights = weighted_config.get("prescriber_weights", {
+            "prescriber_name": 40,
+            "prescriber_npi": 35,
+            "prescriber_phone": 25
+        })
+        
+        drug_weights = weighted_config.get("drug_weights", {
+            "drug_name": 100
+        })
+        
+        direction_weights = weighted_config.get("direction_weights", {
+            "frequency": 50,
+            "dose_amount": 50
+        })
+        
+        # Calculate weighted scores
+        category_scores = {}
+        
+        # Patient score (weighted average of name and DOB)
+        patient_score = (
+            field_scores.get("patient_name", 0) * patient_weights.get("patient_name", 60) / 100 +
+            field_scores.get("patient_dob", 0) * patient_weights.get("patient_dob", 40) / 100
+        )
+        category_scores["patient"] = round(patient_score)
+        
+        # Prescriber score (weighted average of name, NPI, phone)
+        prescriber_score = (
+            field_scores.get("prescriber_name", 0) * prescriber_weights.get("prescriber_name", 40) / 100 +
+            field_scores.get("prescriber_npi", 0) * prescriber_weights.get("prescriber_npi", 35) / 100 +
+            field_scores.get("prescriber_phone", 0) * prescriber_weights.get("prescriber_phone", 25) / 100
+        )
+        category_scores["prescriber"] = round(prescriber_score)
+        
+        # Drug score (single field)
+        category_scores["drug"] = field_scores.get("drug_name", 0)
+        
+        # Direction score (weighted average of frequency and dose)
+        direction_score = (
+            field_scores.get("direction_frequency", 0) * direction_weights.get("frequency", 50) / 100 +
+            field_scores.get("direction_dose", 0) * direction_weights.get("dose_amount", 50) / 100
+        )
+        category_scores["direction"] = round(direction_score)
+        
+        # Log detailed breakdown
+        self.logger.info("=== WEIGHTED SCORE BREAKDOWN ===")
+        self.logger.info(f"Patient: {category_scores['patient']}% (Name:{field_scores.get('patient_name',0)}×{patient_weights.get('patient_name',60)}% + DOB:{field_scores.get('patient_dob',0)}×{patient_weights.get('patient_dob',40)}%)")
+        self.logger.info(f"Prescriber: {category_scores['prescriber']}% (Name:{field_scores.get('prescriber_name',0)}×{prescriber_weights.get('prescriber_name',40)}% + NPI:{field_scores.get('prescriber_npi',0)}×{prescriber_weights.get('prescriber_npi',35)}% + Phone:{field_scores.get('prescriber_phone',0)}×{prescriber_weights.get('prescriber_phone',25)}%)")
+        self.logger.info(f"Drug: {category_scores['drug']}% (Name:{field_scores.get('drug_name',0)}×100%)")
+        self.logger.info(f"Direction: {category_scores['direction']}% (Frequency:{field_scores.get('direction_frequency',0)}×{direction_weights.get('frequency',50)}% + Dose:{field_scores.get('direction_dose',0)}×{direction_weights.get('dose_amount',50)}%)")
+        
+        return category_scores
+    
+    def _parse_direction_components(self, left_data: Dict[str, str], right_data: Dict[str, str], scores_data: Dict[str, int]):
+        """Use AI to parse and compare direction components if VLM didn't provide them"""
+        
+        # If VLM already extracted frequency/dose scores, use those
+        if "direction_frequency" in scores_data and "direction_dose" in scores_data:
+            # Check if VLM actually scored them (not just returned 0 for missing)
+            left_sig = left_data.get("direction_sig", "")
+            right_sig = right_data.get("direction_sig", "")
+            
+            # If both directions exist but scores are 0, VLM might not have parsed properly
+            # Let AI handle it
+            if left_sig and right_sig and (scores_data["direction_frequency"] == 0 and scores_data["direction_dose"] == 0):
+                self.logger.debug("Direction scores are 0 but both sigs exist - asking AI to parse")
+            else:
+                return  # VLM already handled it
+        
+        # Otherwise, ask AI to parse and compare
+        left_sig = left_data.get("direction_sig", "")
+        right_sig = right_data.get("direction_sig", "")
+        
+        if not left_sig or not right_sig:
+            self.logger.debug("Direction parsing: One or both directions missing")
+            scores_data["direction_frequency"] = 0
+            scores_data["direction_dose"] = 0
+            return
+        
+        # Ask AI to parse and compare directions
+        ai_result = self._ai_parse_directions(left_sig, right_sig)
+        
+        if ai_result:
+            scores_data["direction_frequency"] = ai_result.get("frequency_score", 0)
+            scores_data["direction_dose"] = ai_result.get("dose_score", 0)
+            self.logger.info(f"AI direction parsing: frequency={ai_result.get('frequency_score')}, dose={ai_result.get('dose_score')}")
+    
+    def _ai_parse_directions(self, left_sig: str, right_sig: str) -> Dict[str, int]:
+        """Ask AI to parse and compare direction components"""
+        try:
+            import json
+            
+            # Get prompt from config (customizable!)
+            direction_parse_prompt = self.config.get("direction_parse_prompt", """
+You are a pharmacy direction parser. Compare two prescription directions and determine if the FREQUENCY and DOSE AMOUNT match.
 
+LEFT direction: {left_sig}
+RIGHT direction: {right_sig}
+
+Task:
+1. Extract the FREQUENCY (how often to take) from each direction
+   Examples: "once daily", "twice a day", "every 12 hours", "BID", "TID"
+   
+2. Extract the DOSE AMOUNT (quantity per dose) from each direction
+   Examples: "1 tablet", "2 capsules", "5ml", "one pill"
+   
+3. Compare them allowing semantic equivalence:
+   - "once daily" = "once a day" = "daily" = "QD" = "every day"
+   - "twice daily" = "twice a day" = "BID" = "2 times daily"
+   - "1 tablet" = "one tablet" = "1 tab"
+
+Respond with ONLY this JSON (no explanations):
+{{
+  "frequency_score": 100 or 0,
+  "dose_score": 100 or 0
+}}
+
+Score 100 if they match semantically, 0 if different or unclear.
+""")
+            
+            prompt = direction_parse_prompt.format(left_sig=left_sig, right_sig=right_sig)
+            
+            messages = [
+                {"role": "user", "content": prompt}
+            ]
+            
+            # Call AI
+            chat_completion = self.client.chat.completions.create(
+                messages=messages,
+                model=self.config.get("model_name", ""),
+                max_tokens=100,
+                temperature=0.0
+            )
+            
+            response_content = chat_completion.choices[0].message.content or ""
+            self.logger.debug(f"AI direction parse response: {response_content}")
+            
+            # Parse response
+            result = self._robust_json_parse(response_content, "DirectionParse")
+            return result if result else {"frequency_score": 0, "dose_score": 0}
+            
+        except Exception as e:
+            self.logger.error(f"AI direction parsing failed: {e}")
+            return {"frequency_score": 0, "dose_score": 0}
+    
+    def _get_default_field_scores(self) -> Dict[str, int]:
+        """Return default zero scores for all individual fields"""
+        return {
+            "patient_name": 0,
+            "patient_dob": 0,
+            "prescriber_name": 0,
+            "prescriber_phone": 0,
+            "prescriber_npi": 0,
+            "drug_name": 0,
+            "direction_frequency": 0,
+            "direction_dose": 0
+        }
+    
+    def _get_default_category_scores(self) -> Dict[str, int]:
+        """Return default zero scores for all categories"""
+        return {
+            "patient": 0,
+            "prescriber": 0,
+            "drug": 0,
+            "direction": 0
+        }
+    
     def _parse_vlm_response(self, response_content: str) -> Dict[str, int]:
         """
         Parse VLM JSON response format:
@@ -991,20 +1252,13 @@ Use only these exact scores: 0, 50, 95, or 100. Nothing else."""
             # Extract and validate scores
             if "scores" in data:
                 for field, score in data["scores"].items():
-                    # Validate score
-                    valid_scores = [0, 50, 95, 100]
-                    if score not in valid_scores:
-                        self.logger.warning(f"VLM: Invalid score {score} for field '{field}'. Valid scores: {valid_scores}")
-                        # Round to nearest valid score
-                        if score < 25:
-                            score = 0
-                        elif score < 72:
-                            score = 50
-                        elif score < 97:
-                            score = 95
-                        else:
-                            score = 100
-                        self.logger.info(f"VLM: Rounded score to {score} for field '{field}'")
+                    # Trust the AI's score, just clamp to 0-100 range
+                    try:
+                        score = int(float(score))
+                        score = max(0, min(100, score))
+                    except (ValueError, TypeError):
+                        self.logger.warning(f"VLM: Invalid score '{score}' for field '{field}', defaulting to 0")
+                        score = 0
                     
                     # Map field names to expected keys
                     field_mapping = {
@@ -1275,20 +1529,15 @@ Respond with ONLY this JSON:
 
             scores_data = json.loads(cleaned_response)
             
-            # Validate scores
+            # Validate scores - trust AI output, just clamp to 0-100
             validated_scores = {}
             for field, score in scores_data.items():
-                valid_scores = [0, 50, 95, 100]
-                if score not in valid_scores:
-                    self.logger.warning(f"Invalid score {score} for {field}, rounding to nearest valid")
-                    if score < 25:
-                        score = 0
-                    elif score < 72:
-                        score = 50
-                    elif score < 97:
-                        score = 95
-                    else:
-                        score = 100
+                try:
+                    score = int(float(score))
+                    score = max(0, min(100, score))
+                except (ValueError, TypeError):
+                    self.logger.warning(f"Invalid score '{score}' for {field}, defaulting to 0")
+                    score = 0
                 
                 if field in ['patient_name', 'prescriber_name', 'drug_name', 'direction_sig']:
                     validated_scores[field] = score

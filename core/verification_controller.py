@@ -209,7 +209,39 @@ class VerificationController:
                 for result in results.values():
                     # Check if coords exist before trying to draw
                     if "coords" in result and len(result["coords"]) == 4:
-                        color = "#00ff00" if result["match"] else "#ff0000"
+                        # Get score and threshold for gradient coloring
+                        score = result.get("score", 0)
+                        threshold = result.get("threshold", 80)
+                        
+                        # Color scheme based on score:
+                        # 100 = Dark green (#006400)
+                        # 100-threshold = Light green (#90EE90)
+                        # threshold-1 = Light red (#FFB6C1) 
+                        # 0 = Red (#FF0000)
+                        
+                        if score == 100:
+                            color = "#006400"  # Dark green
+                        elif score >= threshold:
+                            # Light green gradient from threshold to 100
+                            # Interpolate between light green and dark green
+                            ratio = (score - threshold) / (100 - threshold) if threshold < 100 else 1
+                            # Light green RGB(144,238,144) to Dark green RGB(0,100,0)
+                            r = int(144 * (1 - ratio))
+                            g = int(238 * (1 - ratio) + 100 * ratio)
+                            b = int(144 * (1 - ratio))
+                            color = f"#{r:02x}{g:02x}{b:02x}"
+                        elif score > 0:
+                            # Light red gradient from 1 to threshold-1
+                            # Interpolate between red and light red
+                            ratio = score / threshold if threshold > 0 else 0
+                            # Red RGB(255,0,0) to Light red RGB(255,182,193)
+                            r = 255
+                            g = int(182 * ratio)
+                            b = int(193 * ratio)
+                            color = f"#{r:02x}{g:02x}{b:02x}"
+                        else:
+                            color = "#FF0000"  # Red for score 0
+                        
                         canvas.create_rectangle(*result["coords"], outline=color, width=3)
                     else:
                         logging.warning(f"Skipping overlay for field - missing or invalid coords: {result.get('coords', 'None')}")
@@ -684,37 +716,45 @@ class VerificationController:
             logging.info("VLM: Starting vision-based verification")
             vlm_scores = vlm_verifier.verify_with_vlm()
             
-            # Convert VLM scores to verification results format
+            # Convert VLM category scores to field-level results format for overlay
             results = {}
             
             # Get thresholds for comparison
             thresholds = self.config.get("thresholds", {})
             
-            # Map VLM field names to threshold keys
-            field_threshold_map = {
-                "patient_name": "patient",
-                "prescriber_name": "prescriber", 
-                "drug_name": "drug",
-                "direction_sig": "sig"
+            # Map VLM category scores to display fields with coordinates
+            # VLM returns: {"patient": score, "prescriber": score, "drug": score, "direction": score}
+            category_to_field_map = {
+                "patient": "patient_name",
+                "prescriber": "prescriber_name",
+                "drug": "drug_name",
+                "direction": "direction_sig"
             }
             
-            for field_name, score in vlm_scores.items():
-                threshold_key = field_threshold_map.get(field_name, field_name)
-                threshold = thresholds.get(threshold_key, 70)
+            for category, score in vlm_scores.items():
+                # Get the field name for coordinates lookup
+                field_name = category_to_field_map.get(category, category)
+                
+                # Get threshold for this category
+                threshold = thresholds.get(category, 70)
                 
                 match = score >= threshold
                 
-                # Get coordinates for overlay from configuration
-                field_coords = self.config.get("regions", {}).get("fields", {}).get(field_name, {}).get("entered", [0, 0, 0, 0])
+                # Get coordinates for overlay from OCR field configuration
+                field_coords = self.config.get("regions", {}).get("fields", {}).get(field_name, {}).get("entered", [])
+                
+                if not field_coords or len(field_coords) != 4:
+                    logging.debug(f"VLM: No valid coordinates for {field_name}, skipping overlay box")
+                    field_coords = []
                 
                 results[field_name] = {
-                    "entered": f"VLM_IMAGE_ANALYSIS",
+                    "entered": f"VLM_CATEGORY: {category}",
                     "source": f"VLM_IMAGE_ANALYSIS", 
                     "score": score,
                     "match": match,
                     "threshold": threshold,
                     "method": "vlm_ai",
-                    "coords": field_coords  # Add coordinates for overlay
+                    "coords": field_coords  # Add coordinates for overlay (may be empty)
                 }
                 
                 # Removed redundant logging here - will be logged by log_rx_summary
@@ -732,7 +772,7 @@ class VerificationController:
         try:
             vlm_config_file = os.path.join("config", "vlm_config.json")
             if os.path.exists(vlm_config_file):
-                with open(vlm_config_file, 'r') as f:
+                with open(vlm_config_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
             else:
                 logging.error(f"VLM: Configuration file {vlm_config_file} not found")
