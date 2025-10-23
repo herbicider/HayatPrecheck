@@ -981,10 +981,6 @@ Return your response in this exact JSON format (no reasoning, no explanation):
             self.logger.debug(f"Step3: Category scores: {validated_scores}")
             
             return validated_scores
-            self.logger.debug(f"Step3: Field scores: {validated_field_scores}")
-            self.logger.debug(f"Step3: Weighted category scores: {category_scores}")
-            
-            return category_scores
             
         except Exception as e:
             self.logger.error(f"Failed to search and score matches: {e}")
@@ -1022,68 +1018,6 @@ Return your response in this exact JSON format (no reasoning, no explanation):
             validated_scores[field] = score
         
         return validated_scores
-    
-    def _calculate_weighted_scores(self, field_scores: Dict[str, int]) -> Dict[str, int]:
-        """Calculate weighted category scores from individual field scores"""
-        weighted_config = self.config.get("weighted_scoring", {})
-        
-        # Get weights from config with defaults
-        patient_weights = weighted_config.get("patient_weights", {
-            "patient_name": 60,
-            "patient_dob": 40
-        })
-        
-        prescriber_weights = weighted_config.get("prescriber_weights", {
-            "prescriber_name": 40,
-            "prescriber_npi": 35,
-            "prescriber_phone": 25
-        })
-        
-        drug_weights = weighted_config.get("drug_weights", {
-            "drug_name": 100
-        })
-        
-        direction_weights = weighted_config.get("direction_weights", {
-            "frequency": 50,
-            "dose_amount": 50
-        })
-        
-        # Calculate weighted scores
-        category_scores = {}
-        
-        # Patient score (weighted average of name and DOB)
-        patient_score = (
-            field_scores.get("patient_name", 0) * patient_weights.get("patient_name", 60) / 100 +
-            field_scores.get("patient_dob", 0) * patient_weights.get("patient_dob", 40) / 100
-        )
-        category_scores["patient"] = round(patient_score)
-        
-        # Prescriber score (weighted average of name, NPI, phone)
-        prescriber_score = (
-            field_scores.get("prescriber_name", 0) * prescriber_weights.get("prescriber_name", 40) / 100 +
-            field_scores.get("prescriber_npi", 0) * prescriber_weights.get("prescriber_npi", 35) / 100 +
-            field_scores.get("prescriber_phone", 0) * prescriber_weights.get("prescriber_phone", 25) / 100
-        )
-        category_scores["prescriber"] = round(prescriber_score)
-        
-        # Drug score (single field)
-        category_scores["drug"] = field_scores.get("drug_name", 0)
-        
-        # Direction score (weighted average of frequency and dose)
-        direction_score = (
-            field_scores.get("direction_frequency", 0) * direction_weights.get("frequency", 50) / 100 +
-            field_scores.get("direction_dose", 0) * direction_weights.get("dose_amount", 50) / 100
-        )
-        category_scores["direction"] = round(direction_score)
-        
-        # Log detailed breakdown
-        self.logger.info("=== WEIGHTED SCORE BREAKDOWN ===")
-        self.logger.info(f"Patient: {category_scores['patient']}% (Name:{field_scores.get('patient_name',0)}×{patient_weights.get('patient_name',60)}% + DOB:{field_scores.get('patient_dob',0)}×{patient_weights.get('patient_dob',40)}%)")
-        self.logger.info(f"Prescriber: {category_scores['prescriber']}% (Name:{field_scores.get('prescriber_name',0)}×{prescriber_weights.get('prescriber_name',40)}% + NPI:{field_scores.get('prescriber_npi',0)}×{prescriber_weights.get('prescriber_npi',35)}% + Phone:{field_scores.get('prescriber_phone',0)}×{prescriber_weights.get('prescriber_phone',25)}%)")
-        self.logger.info(f"Drug: {category_scores['drug']}% (Name:{field_scores.get('drug_name',0)}×100%)")
-        self.logger.info(f"Direction: {category_scores['direction']}% (Frequency:{field_scores.get('direction_frequency',0)}×{direction_weights.get('frequency',50)}% + Dose:{field_scores.get('direction_dose',0)}×{direction_weights.get('dose_amount',50)}%)")
-        
-        return category_scores
     
     def _parse_direction_components(self, left_data: Dict[str, str], right_data: Dict[str, str], scores_data: Dict[str, int]):
         """Use AI to parse and compare direction components if VLM didn't provide them"""

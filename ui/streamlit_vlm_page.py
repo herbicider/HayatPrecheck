@@ -57,19 +57,16 @@ def vlm_settings_page(main_config: Dict[str, Any]):
         st.error("❌ Failed to load VLM configuration")
         return
     
-    # Main tabs with prompt customization and weighted scoring
-    tab1, tab2, tab3, tab4 = st.tabs(["🔧 Model Settings", "⚖️ Weighted Scoring", "📝 Prompt Customization", "🧪 Testing"])
+    # Main tabs with prompt customization
+    tab1, tab2, tab3 = st.tabs(["🔧 Model Settings", "📝 Prompt Customization", "🧪 Testing"])
 
     with tab1:
         show_model_settings(vlm_config, vlm_config_file)
 
     with tab2:
-        show_weighted_scoring_settings(vlm_config, vlm_config_file)
-
-    with tab3:
         show_prompt_customization(vlm_config, vlm_config_file)
 
-    with tab4:
+    with tab3:
         show_vlm_testing(vlm_config)
 
 def load_vlm_config(config_file: str) -> Optional[Dict[str, Any]]:
@@ -121,101 +118,75 @@ def save_vlm_config(config: Dict[str, Any], config_file: str) -> bool:
         return False
 
 def show_prompt_customization(vlm_config: Dict[str, Any], config_file: str):
-    """Show VLM prompt customization for all steps"""
-    st.subheader("📝 5-Step VLM Prompt Customization")
-    st.info("🎯 **Customize prompts for each step** of the VLM verification process")
+    """Show VLM prompt customization for one-shot mode"""
+    st.subheader("📝 One-Shot VLM Prompt Customization")
+    st.info("🎯 **One-Shot Mode:** Single image with both sides (left=entered, right=source) → Direct comparison and scoring")
     
     # Get current prompts from vlm_config section
     vlm_model_config = vlm_config.get("vlm_config", {})
-    step1_system = vlm_model_config.get("step1_system_prompt", "")
-    step1_user = vlm_model_config.get("step1_user_prompt", "")
-    step2_system = vlm_model_config.get("step2_system_prompt", "")
-    step2_user = vlm_model_config.get("step2_user_prompt", "")
-    step3_system = vlm_model_config.get("step3_system_prompt", "")
-    step3_user = vlm_model_config.get("step3_user_prompt", "")
+    oneshot_system = vlm_model_config.get("oneshot_system_prompt", "")
+    oneshot_user = vlm_model_config.get("oneshot_user_prompt", "")
     
-    # Step 1: LEFT Image Extraction
-    st.write("### 🔍 Step 1 & 2: LEFT Image Data Extraction")
-    st.caption("Extract patient information from the data entry (left) image")
+    # One-Shot Prompt Editing
+    st.write("### 🎯 Single-Shot Comparison Prompts")
+    st.caption("One image with both entry (left) and source (right) → AI returns scores directly")
     
     col1, col2 = st.columns(2)
     with col1:
-        st.write("**System Prompt (Step 1):**")
-        new_step1_system = st.text_area(
-            "System instructions for LEFT image extraction:",
-            value=step1_system,
-            height=150,
-            help="Instructions for how to extract data from the LEFT image",
-            key="step1_system"
+        st.write("**System Prompt:**")
+        new_oneshot_system = st.text_area(
+            "System instructions for one-shot comparison:",
+            value=oneshot_system,
+            height=200,
+            help="Instructions for how the AI should compare the left (entered) and right (source) sides",
+            key="oneshot_system"
         )
     
     with col2:
-        st.write("**User Prompt (Step 1):**")
-        new_step1_user = st.text_area(
-            "User message for LEFT image extraction:",
-            value=step1_user,
-            height=150,
-            help="The message sent with the LEFT image",
-            key="step1_user"
+        st.write("**User Prompt:**")
+        new_oneshot_user = st.text_area(
+            "User message for one-shot comparison:",
+            value=oneshot_user,
+            height=200,
+            help="The message sent with the comparison image. Should explain layout and expected response format.",
+            key="oneshot_user"
         )
     
-    # Step 2: RIGHT Image Extraction
-    st.write("### 🔍 Step 3 & 4: RIGHT Image Data Extraction")
-    st.caption("Extract patient information from the source prescription (right) image")
-    
-    col3, col4 = st.columns(2)
-    with col3:
-        st.write("**System Prompt (Step 2):**")
-        new_step2_system = st.text_area(
-            "System instructions for RIGHT image extraction:",
-            value=step2_system,
-            height=150,
-            help="Instructions for how to extract data from the RIGHT image",
-            key="step2_system"
-        )
-    
-    with col4:
-        st.write("**User Prompt (Step 2):**")
-        new_step2_user = st.text_area(
-            "User message for RIGHT image extraction:",
-            value=step2_user,
-            height=150,
-            help="The message sent with the RIGHT image",
-            key="step2_user"
-        )
-    
-    # Step 3: Matching and Scoring
-    st.write("### 🎯 Step 5: Intelligent Matching and Scoring")
-    st.caption("Compare extracted data and provide confidence scores")
-    
-    col5, col6 = st.columns(2)
-    with col5:
-        st.write("**System Prompt (Step 3):**")
-        new_step3_system = st.text_area(
-            "System instructions for matching and scoring:",
-            value=step3_system,
-            height=150,
-            help="Instructions for how to compare extracted data and score matches",
-            key="step3_system"
-        )
-    
-    with col6:
-        st.write("**User Prompt (Step 3):**")
-        new_step3_user = st.text_area(
-            "User message for matching and scoring:",
-            value=step3_user,
-            height=150,
-            help="The message sent with the extracted data for comparison",
-            key="step3_user"
-        )
+    # Prompt guidelines
+    with st.expander("💡 Prompt Engineering Tips", expanded=False):
+        st.markdown("""
+**Key Elements for Effective Prompts:**
+
+1. **Clear Layout Description:** "Left side is entered data, right side is source prescription"
+2. **Specific Categories:** Define exactly what to compare (patient, prescriber, drug, direction)
+3. **Scoring Scale:** "0-100 where 0=completely different, 100=identical"
+4. **Response Format:** Show exact JSON format expected
+5. **No Reasoning:** "Return ONLY JSON, no explanation"
+
+**Example Response Format:**
+```json
+{
+  "patient": 95,
+  "prescriber": 100,
+  "drug": 90,
+  "direction": 85
+}
+```
+
+**Scoring Guidelines to Include:**
+- Same person/drug: 90-100
+- Minor differences: 70-89
+- Different person/drug: 0-20
+- Missing data: 0
+""")
     
     # Reset to defaults button
     col_reset, col_save = st.columns([1, 2])
     
     with col_reset:
-        if st.button("🔄 Reset to Defaults", help="Reset all prompts to default values"):
+        if st.button("🔄 Reset to Defaults", help="Reset prompts to default one-shot values"):
             # Set default prompts in the vlm_config section
-            default_prompts = get_default_prompts()
+            default_prompts = get_default_oneshot_prompts()
             if "vlm_config" not in vlm_config:
                 vlm_config["vlm_config"] = {}
             vlm_config["vlm_config"].update(default_prompts)
@@ -227,96 +198,32 @@ def show_prompt_customization(vlm_config: Dict[str, Any], config_file: str):
     
     # Save prompts button
     with col_save:
-        if st.button("💾 Save All Prompts", type="primary"):
+        if st.button("💾 Save Prompts", type="primary"):
             # Update configuration in the vlm_config section
             if "vlm_config" not in vlm_config:
                 vlm_config["vlm_config"] = {}
             
-            vlm_config["vlm_config"]["step1_system_prompt"] = new_step1_system
-            vlm_config["vlm_config"]["step1_user_prompt"] = new_step1_user
-            vlm_config["vlm_config"]["step2_system_prompt"] = new_step2_system
-            vlm_config["vlm_config"]["step2_user_prompt"] = new_step2_user
-            vlm_config["vlm_config"]["step3_system_prompt"] = new_step3_system
-            vlm_config["vlm_config"]["step3_user_prompt"] = new_step3_user
+            vlm_config["vlm_config"]["oneshot_system_prompt"] = new_oneshot_system
+            vlm_config["vlm_config"]["oneshot_user_prompt"] = new_oneshot_user
             
             if save_vlm_config(vlm_config, config_file):
-                st.success("✅ All prompts saved successfully!")
+                st.success("✅ Prompts saved successfully!")
                 st.info("🔄 Changes will take effect on the next VLM verification")
                 time.sleep(1)
                 st.rerun()
 
-def get_default_prompts() -> Dict[str, str]:
-    """Get default prompts for all VLM steps"""
+def get_default_oneshot_prompts() -> Dict[str, str]:
+    """Get default prompts for one-shot VLM mode"""
     return {
-        "step1_system_prompt": """You are a prescription data extraction assistant. Analyze the provided prescription image and extract key information.
-
-Extract ONLY the following fields if clearly visible:
-- patient_name: Full patient name 
-- patient_dob: Patient date of birth (if visible)
-- prescriber_name: Prescriber/doctor name
-- drug_name: Medication name and strength
-- direction_sig: Directions for use/dosing instructions
-
-Return ONLY a JSON object with the extracted data. Use empty string "" for fields that are not clearly visible.
-
-Example format:
+        "oneshot_system_prompt": "You are a pharmacy prescription verification agent. Compare the prescription data and provide accurate matching scores.",
+        
+        "oneshot_user_prompt": """You are a pharmacy prescription verify agent, in the screenshot left side is what entered, right side is the original prescription. Please give me a matching score between 0-100 of patient, prescriber, drug, and direction. Only give score in following format, no reasoning, no explanation.
 {
-  "patient_name": "Smith, John",
-  "patient_dob": "01/15/1980", 
-  "prescriber_name": "Dr. Johnson",
-  "drug_name": "Lisinopril 10mg",
-  "direction_sig": "Take 1 tablet daily"
-}""",
-        
-        "step1_user_prompt": "Please extract the prescription information from this LEFT image. Return only the JSON object with the extracted data.",
-        
-        "step2_system_prompt": """You are a prescription data extraction assistant. Analyze the provided prescription image and extract key information.
-
-Extract ONLY the following fields if clearly visible:
-- patient_name: Full patient name 
-- patient_dob: Patient date of birth (if visible)
-- prescriber_name: Prescriber/doctor name
-- drug_name: Medication name and strength
-- direction_sig: Directions for use/dosing instructions
-
-Return ONLY a JSON object with the extracted data. Use empty string "" for fields that are not clearly visible.
-
-Example format:
-{
-  "patient_name": "Smith, John",
-  "patient_dob": "01/15/1980", 
-  "prescriber_name": "Dr. Johnson",
-  "drug_name": "Lisinopril 10mg",
-  "direction_sig": "Take 1 tablet daily"
-}""",
-        
-        "step2_user_prompt": "Please extract the prescription information from this RIGHT image. Return only the JSON object with the extracted data.",
-        
-        "step3_system_prompt": """You are a prescription verification assistant. Compare the LEFT (data entry) information with the RIGHT (source prescription) information and provide confidence scores.
-
-For each field, provide a score from 0-100 based on how well they match:
-- 90-100: Perfect or near-perfect match
-- 70-89: Good match with minor differences  
-- 50-69: Moderate match with some discrepancies
-- 30-49: Poor match with significant differences
-- 0-29: Very poor match or completely different
-
-Important matching rules:
-- Different people names should score 0-10
-- Different medications should score 0-20
-- Minor spelling/formatting differences are acceptable (score 80-95)
-- Missing information should score 0
-
-Return ONLY a JSON object with field scores:
-{
-  "patient_name": 95,
-  "patient_dob": 90,
-  "prescriber_name": 0,
-  "drug_name": 85,
-  "direction_sig": 92
-}""",
-        
-        "step3_user_prompt": "Compare the LEFT data entry information with the RIGHT source prescription information and provide confidence scores for each field. LEFT data: {left_data}. RIGHT data: {right_data}. Return only the JSON scoring object."
+  "patient": score,
+  "prescriber": score,
+  "drug": score,
+  "direction": score
+}"""
     }
 
 def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
@@ -512,238 +419,6 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
         except Exception as e:
             st.error(f"❌ Failed to launch Settings GUI: {e}")
 
-def show_weighted_scoring_settings(vlm_config: Dict[str, Any], config_file: str):
-    """Show weighted scoring configuration"""
-    
-    st.subheader("⚖️ Weighted Scoring System")
-    st.info("🎯 **Category Scoring:** Define how individual field scores combine into category scores")
-    
-    weighted_config = vlm_config.get("weighted_scoring", {})
-    
-    # Patient Category
-    with st.expander("👤 Patient Category Weights", expanded=True):
-        st.write("**Patient verification combines:**")
-        st.write("- Patient Name")
-        st.write("- Patient Date of Birth (DOB)")
-        
-        patient_weights = weighted_config.get("patient_weights", {"patient_name": 60, "patient_dob": 40})
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            patient_name_weight = st.slider(
-                "Patient Name Weight (%):",
-                min_value=0,
-                max_value=100,
-                value=patient_weights.get("patient_name", 60),
-                step=5,
-                help="Importance of patient name in overall patient score"
-            )
-        
-        with col2:
-            patient_dob_weight = st.slider(
-                "Patient DOB Weight (%):",
-                min_value=0,
-                max_value=100,
-                value=patient_weights.get("patient_dob", 40),
-                step=5,
-                help="Importance of date of birth in overall patient score"
-            )
-        
-        # Normalize patient weights
-        patient_total = patient_name_weight + patient_dob_weight
-        if patient_total != 100:
-            st.warning(f"⚠️ Weights total {patient_total}% (will be normalized to 100%)")
-            patient_name_weight_norm = round(patient_name_weight * 100 / patient_total) if patient_total > 0 else 50
-            patient_dob_weight_norm = 100 - patient_name_weight_norm
-            st.caption(f"Normalized: Name {patient_name_weight_norm}%, DOB {patient_dob_weight_norm}%")
-        else:
-            patient_name_weight_norm = patient_name_weight
-            patient_dob_weight_norm = patient_dob_weight
-    
-    # Prescriber Category
-    with st.expander("👨‍⚕️ Prescriber Category Weights", expanded=True):
-        st.write("**Prescriber verification combines:**")
-        st.write("- Prescriber Name")
-        st.write("- Prescriber NPI Number")
-        st.write("- Prescriber Phone Number")
-        
-        prescriber_weights = weighted_config.get("prescriber_weights", {
-            "prescriber_name": 40, "prescriber_npi": 35, "prescriber_phone": 25
-        })
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            prescriber_name_weight = st.slider(
-                "Prescriber Name (%):",
-                min_value=0,
-                max_value=100,
-                value=prescriber_weights.get("prescriber_name", 40),
-                step=5,
-                help="Importance of prescriber name"
-            )
-        
-        with col2:
-            prescriber_npi_weight = st.slider(
-                "Prescriber NPI (%):",
-                min_value=0,
-                max_value=100,
-                value=prescriber_weights.get("prescriber_npi", 35),
-                step=5,
-                help="Importance of NPI number (most reliable identifier)"
-            )
-        
-        with col3:
-            prescriber_phone_weight = st.slider(
-                "Prescriber Phone (%):",
-                min_value=0,
-                max_value=100,
-                value=prescriber_weights.get("prescriber_phone", 25),
-                step=5,
-                help="Importance of phone number"
-            )
-        
-        # Normalize prescriber weights
-        prescriber_total = prescriber_name_weight + prescriber_npi_weight + prescriber_phone_weight
-        if prescriber_total != 100:
-            st.warning(f"⚠️ Weights total {prescriber_total}% (will be normalized to 100%)")
-            if prescriber_total > 0:
-                prescriber_name_weight_norm = round(prescriber_name_weight * 100 / prescriber_total)
-                prescriber_npi_weight_norm = round(prescriber_npi_weight * 100 / prescriber_total)
-                prescriber_phone_weight_norm = 100 - prescriber_name_weight_norm - prescriber_npi_weight_norm
-            else:
-                prescriber_name_weight_norm, prescriber_npi_weight_norm, prescriber_phone_weight_norm = 40, 35, 25
-            st.caption(f"Normalized: Name {prescriber_name_weight_norm}%, NPI {prescriber_npi_weight_norm}%, Phone {prescriber_phone_weight_norm}%")
-        else:
-            prescriber_name_weight_norm = prescriber_name_weight
-            prescriber_npi_weight_norm = prescriber_npi_weight
-            prescriber_phone_weight_norm = prescriber_phone_weight
-    
-    # Drug Category (single field)
-    with st.expander("💊 Drug Category", expanded=True):
-        st.write("**Drug verification:**")
-        st.write("- Drug Name (100% - single field)")
-        st.info("Drug name is verified as a single field with 100% weight")
-    
-    # Direction Category
-    with st.expander("📋 Direction Category Weights", expanded=True):
-        st.write("**Direction verification combines:**")
-        st.write("- Frequency (how often: daily, twice a day, etc.)")
-        st.write("- Dose Amount (quantity per dose: 1 tablet, 2 capsules, etc.)")
-        
-        direction_weights = weighted_config.get("direction_weights", {"frequency": 50, "dose_amount": 50})
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            direction_frequency_weight = st.slider(
-                "Frequency Weight (%):",
-                min_value=0,
-                max_value=100,
-                value=direction_weights.get("frequency", 50),
-                step=5,
-                help="Importance of dosing frequency (e.g., twice daily)"
-            )
-        
-        with col2:
-            direction_dose_weight = st.slider(
-                "Dose Amount Weight (%):",
-                min_value=0,
-                max_value=100,
-                value=direction_weights.get("dose_amount", 50),
-                step=5,
-                help="Importance of amount per dose (e.g., 1 tablet)"
-            )
-        
-        # Normalize direction weights
-        direction_total = direction_frequency_weight + direction_dose_weight
-        if direction_total != 100:
-            st.warning(f"⚠️ Weights total {direction_total}% (will be normalized to 100%)")
-            direction_frequency_weight_norm = round(direction_frequency_weight * 100 / direction_total) if direction_total > 0 else 50
-            direction_dose_weight_norm = 100 - direction_frequency_weight_norm
-            st.caption(f"Normalized: Frequency {direction_frequency_weight_norm}%, Dose {direction_dose_weight_norm}%")
-        else:
-            direction_frequency_weight_norm = direction_frequency_weight
-            direction_dose_weight_norm = direction_dose_weight
-    
-    # Category Pass Thresholds
-    st.markdown("---")
-    with st.expander("🎯 Category Pass Thresholds", expanded=True):
-        st.write("**Minimum scores required for each category to pass:**")
-        
-        thresholds = weighted_config.get("category_thresholds", {
-            "patient_pass": 90, "prescriber_pass": 85, "drug_pass": 95, "direction_pass": 90
-        })
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            patient_pass = st.slider(
-                "Patient Pass Threshold:",
-                min_value=0,
-                max_value=100,
-                value=thresholds.get("patient_pass", 90),
-                step=5,
-                help="Minimum patient score to pass verification"
-            )
-            
-            prescriber_pass = st.slider(
-                "Prescriber Pass Threshold:",
-                min_value=0,
-                max_value=100,
-                value=thresholds.get("prescriber_pass", 85),
-                step=5,
-                help="Minimum prescriber score to pass verification"
-            )
-        
-        with col2:
-            drug_pass = st.slider(
-                "Drug Pass Threshold:",
-                min_value=0,
-                max_value=100,
-                value=thresholds.get("drug_pass", 95),
-                step=5,
-                help="Minimum drug score to pass (should be high for safety)"
-            )
-            
-            direction_pass = st.slider(
-                "Direction Pass Threshold:",
-                min_value=0,
-                max_value=100,
-                value=thresholds.get("direction_pass", 90),
-                step=5,
-                help="Minimum direction score to pass verification"
-            )
-    
-    # Save button
-    if st.button("💾 Save Weighted Scoring Settings", type="primary"):
-        vlm_config["weighted_scoring"] = {
-            "patient_weights": {
-                "patient_name": patient_name_weight_norm,
-                "patient_dob": patient_dob_weight_norm
-            },
-            "prescriber_weights": {
-                "prescriber_name": prescriber_name_weight_norm,
-                "prescriber_npi": prescriber_npi_weight_norm,
-                "prescriber_phone": prescriber_phone_weight_norm
-            },
-            "drug_weights": {
-                "drug_name": 100
-            },
-            "direction_weights": {
-                "frequency": direction_frequency_weight_norm,
-                "dose_amount": direction_dose_weight_norm
-            },
-            "category_thresholds": {
-                "patient_pass": patient_pass,
-                "prescriber_pass": prescriber_pass,
-                "drug_pass": drug_pass,
-                "direction_pass": direction_pass
-            }
-        }
-        
-        save_vlm_config(vlm_config, config_file)
-        st.success("✅ Weighted scoring settings saved!")
-        time.sleep(1)
-        st.rerun()
-
 def show_region_setup(vlm_config: Dict[str, Any], config_file: str):
     """Show region setup for VLM screenshots"""
     st.subheader("📐 Screenshot Regions")
@@ -907,7 +582,7 @@ def capture_and_show_region(vlm_config: Dict[str, Any], region_name: str, displa
         st.error(f"❌ Error capturing {display_name}: {e}")
 
 def run_complete_vlm_test(vlm_config: Dict[str, Any]):
-    """Run a complete VLM verification test with detailed debug output"""
+    """Run a complete VLM verification test - simply calls the main verify_with_vlm() function"""
     try:
         from ai.vlm_verifier import VLM_Verifier
         import logging
@@ -919,7 +594,7 @@ def run_complete_vlm_test(vlm_config: Dict[str, Any]):
         vlm_debug_log = io.StringIO()
         debug_handler = logging.StreamHandler(vlm_debug_log)
         debug_handler.setLevel(logging.DEBUG)
-        debug_formatter = logging.Formatter('%(levelname)s - %(message)s')
+        debug_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         debug_handler.setFormatter(debug_formatter)
         
         # Get the VLM logger and add our handler
@@ -929,27 +604,17 @@ def run_complete_vlm_test(vlm_config: Dict[str, Any]):
         vlm_logger.addHandler(debug_handler)
         
         try:
+            # Initialize verifier
             verifier = VLM_Verifier(vlm_config)
             
             # Show progress
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            status_text.text("📸 Capturing screenshots...")
+            status_text.text("🤖 Running VLM verification (calling main verify_with_vlm function)...")
             progress_bar.progress(25)
             
-            # Capture regions
-            data_entry_img = verifier.capture_region_screenshot("data_entry")
-            source_img = verifier.capture_region_screenshot("source")
-            
-            if not data_entry_img or not source_img:
-                st.error("❌ Failed to capture required screenshots")
-                return
-            
-            status_text.text("🤖 Running VLM verification...")
-            progress_bar.progress(50)
-            
-            # Run verification
+            # Call the main verification function (this handles everything)
             scores = verifier.verify_with_vlm()
             
             progress_bar.progress(100)
@@ -959,8 +624,8 @@ def run_complete_vlm_test(vlm_config: Dict[str, Any]):
             st.write("**🎯 Verification Results:**")
             
             if scores:
-                # Display category scores (weighted) - these are what the main app uses
-                st.write("**📊 Final Category Scores (Weighted - Used by Main App):**")
+                # Display category scores - these are what the main app uses
+                st.write("**📊 Category Scores:**")
                 
                 # Create columns dynamically based on number of categories
                 num_categories = len(scores)
@@ -985,47 +650,9 @@ def run_complete_vlm_test(vlm_config: Dict[str, Any]):
                             st.error(f"❌ **{category_display}**")
                             st.metric("", f"{score}%")
                 
-                # Extract and show individual field scores from debug log
-                debug_output = vlm_debug_log.getvalue()
-                if "Step3: Field scores:" in debug_output:
-                    import re
-                    field_score_match = re.search(r"Step3: Field scores: (\{.*?\})", debug_output)
-                    if field_score_match:
-                        try:
-                            field_scores_dict_str = field_score_match.group(1)
-                            # Convert string representation to dict
-                            field_scores = eval(field_scores_dict_str)
-                            
-                            st.write("---")
-                            st.write("**🔍 Individual Field Scores (Before Weighting):**")
-                            
-                            col1, col2, col3, col4 = st.columns(4)
-                            
-                            with col1:
-                                st.write("**👤 Patient:**")
-                                st.text(f"Name: {field_scores.get('patient_name', 0)}%")
-                                st.text(f"DOB: {field_scores.get('patient_dob', 0)}%")
-                            
-                            with col2:
-                                st.write("**👨‍⚕️ Prescriber:**")
-                                st.text(f"Name: {field_scores.get('prescriber_name', 0)}%")
-                                st.text(f"Phone: {field_scores.get('prescriber_phone', 0)}%")
-                                st.text(f"NPI: {field_scores.get('prescriber_npi', 0)}%")
-                            
-                            with col3:
-                                st.write("**💊 Drug:**")
-                                st.text(f"Name: {field_scores.get('drug_name', 0)}%")
-                            
-                            with col4:
-                                st.write("**📋 Direction:**")
-                                st.text(f"Frequency: {field_scores.get('direction_frequency', 0)}%")
-                                st.text(f"Dose: {field_scores.get('direction_dose', 0)}%")
-                        except:
-                            pass  # If parsing fails, just skip field score display
-                
                 # Summary stats
                 st.write("---")
-                st.write("**📈 Overall Summary:**")
+                st.write("** Overall Summary:**")
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
@@ -1042,16 +669,6 @@ def run_complete_vlm_test(vlm_config: Dict[str, Any]):
             else:
                 st.warning("⚠️ No scores returned from VLM")
                 st.info("This might indicate an issue with the model or configuration")
-            
-            # Show captured images
-            st.write("**📸 Captured Images:**")
-            col3, col4 = st.columns(2)
-            
-            with col3:
-                st.image(data_entry_img, caption="Data Entry Region", use_column_width=True)
-            
-            with col4:
-                st.image(source_img, caption="Source Region", use_column_width=True)
             
             # Show VLM debug output with all responses
             st.write("---")

@@ -120,8 +120,7 @@ class SettingsGUI:
                 self.vlm_config = {
                     "vlm_config": {},
                     "vlm_regions": {
-                        "data_entry": [0, 0, 0, 0],
-                        "source": [0, 0, 0, 0]
+                        "comparison": [0, 0, 0, 0]
                     },
                     "vlm_settings": {}
                 }
@@ -130,8 +129,7 @@ class SettingsGUI:
             self.vlm_config = {
                 "vlm_config": {},
                 "vlm_regions": {
-                    "data_entry": [0, 0, 0, 0],
-                    "source": [0, 0, 0, 0]
+                    "comparison": [0, 0, 0, 0]
                 },
                 "vlm_settings": {}
             }
@@ -405,24 +403,24 @@ class SettingsGUI:
             if self.field_combo:
                 self.field_combo.set("")
                 self.field_combo.config(state="disabled")
-            # Show only entered/source radios
+            # Hide all region type radios for VLM (single comparison region)
             if hasattr(self, 'radio_trigger') and self.radio_trigger:
                 self.radio_trigger.pack_forget()
             if hasattr(self, 'radio_rx_number') and self.radio_rx_number:
                 self.radio_rx_number.pack_forget()
             if hasattr(self, 'radio_entered') and self.radio_entered:
-                self.radio_entered.pack(anchor=tk.W)
+                self.radio_entered.pack_forget()
             if hasattr(self, 'radio_source') and self.radio_source:
-                self.radio_source.pack(anchor=tk.W)
-            # Default to 'entered' (maps to data_entry)
+                self.radio_source.pack_forget()
+            # Set to "entered" (will be ignored, but needed for internal logic)
             self.region_var.set("entered")
             self.current_field = None
-            self.current_region_type = self.region_var.get()
+            self.current_region_type = "entered"
             # Disable verification method (not applicable here)
             if self.verification_method_combo:
                 self.verification_method_combo.set('')
                 self.verification_method_combo.config(state='disabled')
-            self.update_status("VLM mode: Select Data Entry or Source region and drag on screenshot")
+            self.update_status("VLM mode: Drag to select comparison region (both entry & source sides)")
         else:
             # Enable field selection and restore radios via on_field_change
             if self.field_combo:
@@ -1239,9 +1237,8 @@ class SettingsGUI:
             if y1 > y2:
                 y1, y2 = y2, y1
                 
-            # Use different color for VLM mode
-            color = "blue" if (self.mode_var.get() == "vlm" and self.current_region_type == "entered") else \
-                    "green" if (self.mode_var.get() == "vlm" and self.current_region_type == "source") else "red"
+            # Use blue for VLM comparison region, red for OCR
+            color = "blue" if self.mode_var.get() == "vlm" else "red"
             self.current_rect = self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=2)
     
     def on_release(self, event):
@@ -1274,9 +1271,8 @@ class SettingsGUI:
                     actual_y1 = max(0, min(actual_y1, self.screenshot.height))
                     actual_x2 = max(0, min(actual_x2, self.screenshot.width))
                     actual_y2 = max(0, min(actual_y2, self.screenshot.height))
-                # Update VLM config
-                region_key = "data_entry" if self.current_region_type == "entered" else "source"
-                self.vlm_config.setdefault("vlm_regions", {})[region_key] = [actual_x1, actual_y1, actual_x2, actual_y2]
+                # Update VLM config - single comparison region
+                self.vlm_config.setdefault("vlm_regions", {})["comparison"] = [actual_x1, actual_y1, actual_x2, actual_y2]
                 # Update entries
                 self.coord_vars["coord_0"].set(str(actual_x1))
                 self.coord_vars["coord_1"].set(str(actual_y1))
@@ -1284,10 +1280,9 @@ class SettingsGUI:
                 self.coord_vars["coord_3"].set(str(actual_y2))
                 # Store rectangle
                 if self.current_rect:
-                    rect_key = f"vlm_{self.current_region_type}"
-                    self.rectangles[rect_key] = self.current_rect
+                    self.rectangles["vlm_comparison"] = self.current_rect
                 self.draw_all_rectangles()
-                self.update_status(f"Updated VLM {region_key} region")
+                self.update_status(f"Updated VLM comparison region")
                 if self.auto_save.get():
                     self.save_active_config()
             return
@@ -1414,8 +1409,7 @@ class SettingsGUI:
         self.draw_all_rectangles()
         
         if self.mode_var.get() == "vlm":
-            region_name = "Data Entry" if self.current_region_type == "entered" else "Source"
-            self.update_status(f"VLM mode - Selected region: {region_name}")
+            self.update_status(f"VLM mode - Comparison region selected")
         else:
             self.update_status(f"Selected region: {self.current_region_type}")
 
@@ -1433,11 +1427,10 @@ class SettingsGUI:
     
     def update_coordinate_display(self):
         """Update coordinate entry fields with current values."""
-        # VLM mode: map entered->data_entry, source->source
-        if self.mode_var.get() == "vlm" and self.vlm_config and self.current_region_type in ["entered", "source"]:
-            region_key = "data_entry" if self.current_region_type == "entered" else "source"
+        # VLM mode: single comparison region
+        if self.mode_var.get() == "vlm" and self.vlm_config:
             try:
-                coords = self.vlm_config.get("vlm_regions", {}).get(region_key, [0, 0, 0, 0])
+                coords = self.vlm_config.get("vlm_regions", {}).get("comparison", [0, 0, 0, 0])
                 for i, coord in enumerate(coords):
                     self.coord_vars[f"coord_{i}"].set(str(coord))
             except Exception:
@@ -1472,10 +1465,10 @@ class SettingsGUI:
                 if coords[0] >= coords[2] or coords[1] >= coords[3]:
                     messagebox.showerror("Error", "Invalid coordinates: x1 must be < x2 and y1 must be < y2")
                     return
-                region_key = "data_entry" if self.current_region_type == "entered" else "source"
-                self.vlm_config.setdefault("vlm_regions", {})[region_key] = coords
+                # Single comparison region for VLM
+                self.vlm_config.setdefault("vlm_regions", {})["comparison"] = coords
                 self.draw_all_rectangles()
-                self.update_status("VLM coordinates updated")
+                self.update_status("VLM comparison region updated")
                 if self.auto_save.get():
                     self.save_active_config()
             except ValueError:
@@ -1533,27 +1526,23 @@ class SettingsGUI:
         # Track label positions to avoid overlaps
         used_label_positions = []
 
-        # VLM mode: draw only VLM regions
+        # VLM mode: draw single comparison region
         if self.mode_var.get() == "vlm" and self.vlm_config:
-            colors = {"entered": "blue", "source": "green"}
-            for region_type in ["entered", "source"]:
-                region_key = "data_entry" if region_type == "entered" else "source"
-                coords = self.vlm_config.get("vlm_regions", {}).get(region_key, [0, 0, 0, 0])
-                if len(coords) >= 4:
-                    x1 = int(coords[0] / self.scale_x)
-                    y1 = int(coords[1] / self.scale_y)
-                    x2 = int(coords[2] / self.scale_x)
-                    y2 = int(coords[3] / self.scale_y)
-                    color = colors[region_type]
-                    width = 3 if (self.current_region_type == region_type) else 1
-                    rect = self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=width)
-                    self.rectangles[f"vlm_{region_type}"] = rect
-                    if self.show_labels.get():
-                        text = f"vlm_{region_type}"
-                        label_x, label_y = self._find_available_label_position(x1, y1, x2, y2, used_label_positions)
-                        self.canvas.create_text(label_x, label_y, text=text, anchor=tk.NW, 
-                                              fill=color, font=("Arial", 8, "bold"))
-                        used_label_positions.append((label_x, label_y))
+            coords = self.vlm_config.get("vlm_regions", {}).get("comparison", [0, 0, 0, 0])
+            if len(coords) >= 4:
+                x1 = int(coords[0] / self.scale_x)
+                y1 = int(coords[1] / self.scale_y)
+                x2 = int(coords[2] / self.scale_x)
+                y2 = int(coords[3] / self.scale_y)
+                color = "blue"
+                width = 3
+                rect = self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=width)
+                self.rectangles["vlm_comparison"] = rect
+                if self.show_labels.get():
+                    label_x, label_y = self._find_available_label_position(x1, y1, x2, y2, used_label_positions)
+                    self.canvas.create_text(label_x, label_y, text="Comparison (Both Sides)", anchor=tk.NW, 
+                                          fill=color, font=("Arial", 8, "bold"))
+                    used_label_positions.append((label_x, label_y))
             return
         
         # Draw trigger region
