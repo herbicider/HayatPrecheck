@@ -60,17 +60,19 @@ class VLM_Verifier:
             # Capture the screenshot
             screenshot = pyautogui.screenshot(region=(x1, y1, width, height))
             
-            # Apply enhancements if enabled
+            # Save original for debugging if enabled
+            if self.settings.get("debug_save_images", False):
+                self._save_debug_image(screenshot, f"{region_name}_original")
+            
+            # Apply enhancements if enabled (can be disabled to send raw screenshots)
             if self.settings.get("auto_enhance", True):
-                # Save original for debugging if enabled
-                if self.settings.get("debug_save_images", False):
-                    self._save_debug_image(screenshot, f"{region_name}_original")
-                
                 screenshot = self._enhance_image(screenshot)
                 
                 # Save processed version for debugging
                 if self.settings.get("debug_save_images", False):
                     self._save_debug_image(screenshot, f"{region_name}_processed")
+            else:
+                self.logger.debug(f"Skipping image enhancement - sending original screenshot to VLM")
             
             # Resize if needed - use multiples of 28 for VLM model compatibility
             max_width = self.settings.get("resize_max_width", 1920)
@@ -516,12 +518,17 @@ class VLM_Verifier:
                 image.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
                 self.logger.debug(f"Resized image to {image.width}x{image.height}")
             
-            # Apply enhancements
-            image = self._enhance_image(image)
+            # Apply enhancements if enabled (respects auto_enhance setting)
+            if self.settings.get("auto_enhance", True):
+                image = self._enhance_image(image)
+                self.logger.debug("Applied image enhancements before VLM submission")
+            else:
+                self.logger.debug("Skipping enhancements - sending original screenshot to VLM")
             
             # Save debug image if enabled
             if self.settings.get("debug_save_images", False):
-                self._save_debug_image(image, "processed")
+                prefix = "processed" if self.settings.get("auto_enhance", True) else "original"
+                self._save_debug_image(image, prefix)
             
             # Encode to base64
             return self.encode_image_to_base64(image)
