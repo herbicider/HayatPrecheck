@@ -1,10 +1,12 @@
 {
+  "_SECURITY_NOTE": "NEVER hardcode API keys in this file! Always use environment variables stored in .env file. Use ${VARIABLE_NAME} syntax to reference .env variables. Example: 'api_key': '${GEMINI_API_KEY}'",
   "current_profile": "online1",
   "profiles": {
     "local": {
       "name": "Local Model (Ollama)",
       "base_url": "http://10.147.17.98:1234/v1",
-      "api_key": "",
+      "api_key": "${LOCAL_API_KEY}",
+      "_note": "API key references .env file - DO NOT hardcode keys here",
       "model_name": "",
       "max_tokens": 1500,
       "temperature": 0.1
@@ -12,7 +14,8 @@
     "online1": {
       "name": "Google Gemini",
       "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-      "api_key": "AIzaSyDiH2rVPX6MH0WaQNbMXM9Y1T3Gs4Tb_AM",
+      "api_key": "${GEMINI_API_KEY}",
+      "_note": "API key references .env file - DO NOT hardcode keys here",
       "model_name": "gemini-2.5-flash-lite-preview-09-2025",
       "max_tokens": 2000,
       "temperature": 0.0
@@ -20,7 +23,8 @@
     "online2": {
       "name": "OpenAI Compatible API",
       "base_url": "http://localhost:1234/v1",
-      "api_key": "your-api-key",
+      "api_key": "${OPENAI_API_KEY}",
+      "_note": "API key references .env file - DO NOT hardcode keys here",
       "model_name": "gpt-4-vision-preview",
       "max_tokens": 1500,
       "temperature": 0.1
