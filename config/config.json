@@ -1,0 +1,236 @@
+{
+  "timing": {
+    "fast_polling_seconds": 0.5,
+    "same_prescription_wait_seconds": 10.0,
+    "trigger_content_load_delay_seconds": 0.5,
+    "trigger_check_interval_seconds": 1.0
+  },
+  "thresholds": {
+    "patient": 85,
+    "prescriber": 85,
+    "drug": 85,
+    "sig": 80
+  },
+  "regions": {
+    "trigger": [
+      934,
+      168,
+      1012,
+      190
+    ],
+    "rx_number": [
+      95,
+      56,
+      149,
+      78
+    ],
+    "fields": {
+      "patient_name": {
+        "entered": [
+          90,
+          143,
+          272,
+          168
+        ],
+        "source": [
+          526,
+          404,
+          987,
+          430
+        ],
+        "score_fn": "token_sort_ratio",
+        "threshold_key": "patient"
+      },
+      "prescriber_name": {
+        "entered": [
+          90,
+          221,
+          292,
+          240
+        ],
+        "source": [
+          524,
+          280,
+          868,
+          310
+        ],
+        "score_fn": "token_sort_ratio",
+        "threshold_key": "prescriber"
+      },
+      "drug_name": {
+        "entered": [
+          90,
+          396,
+          309,
+          417
+        ],
+        "source": [
+          533,
+          552,
+          990,
+          578
+        ],
+        "score_fn": "ratio",
+        "threshold_key": "drug"
+      },
+      "direction_sig": {
+        "entered": [
+          24,
+          746,
+          390,
+          772
+        ],
+        "source": [
+          533,
+          631,
+          1183,
+          658
+        ],
+        "score_fn": "ratio",
+        "threshold_key": "sig"
+      },
+      "patient_dob": {
+        "entered": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "source": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "score_fn": "ratio",
+        "threshold_key": "patient_dob"
+      },
+      "patient_phone": {
+        "entered": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "source": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "score_fn": "ratio",
+        "threshold_key": "patient_phone"
+      },
+      "patient_address": {
+        "entered": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "source": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "score_fn": "ratio",
+        "threshold_key": "patient_address"
+      },
+      "prescriber_address": {
+        "entered": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "source": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "score_fn": "ratio",
+        "threshold_key": "prescriber_address"
+      }
+    }
+  },
+  "automation": {
+    "send_key_on_all_match": true,
+    "key_on_all_match": "f12",
+    "key_delay_seconds": 0.5
+  },
+  "tesseract": {
+    "config_options": "--psm 7",
+    "fallback_config": "--psm 8"
+  },
+  "ocr_provider": "paddleocr",
+  "easyocr": {
+    "use_gpu": true,
+    "confidence_threshold": 0.5
+  },
+  "paddleocr": {
+    "use_gpu": false,
+    "confidence_threshold": 0.8,
+    "use_angle_cls": false,
+    "show_log": false,
+    "lang": "en"
+  },
+  "optional_fields_enabled": {
+    "patient_dob": false,
+    "patient_phone": false,
+    "patient_address": false,
+    "prescriber_address": false
+  },
+  "advanced_settings": {
+    "trigger": {
+      "keywords": [
+        "Zoom Select"
+      ],
+      "keyword_similarity_threshold": 90,
+      "min_keyword_matches": 1,
+      "lost_reset_delay_seconds": 5.0
+    },
+    "overlay": {
+      "min_display_seconds": 3.0
+    },
+    "hashing": {
+      "crop_box": {
+        "left": 50,
+        "top": 150,
+        "right": 800,
+        "bottom": 500
+      },
+      "resize_to": [
+        32,
+        32
+      ],
+      "blur_radius": 0.5,
+      "bucket_size": 8
+    },
+    "startup": {
+      "warm_up_ocr_on_start": true,
+      "warm_up_ocr_workers": true,
+      "workers_to_warm": 2,
+      "ocr_worker_count": 4
+    }
+  },
+  "verification_method": "vlm_ai",
+  "verification_methods": {
+    "local_ocr_fuzzy": {
+      "enabled": true,
+      "description": "Multiple small OCR areas + fuzzy text comparison (CPU-based)",
+      "use_existing_regions": true
+    },
+    "vlm_ai": {
+      "enabled": true,
+      "description": "Direct VLM image analysis (no OCR, requires VLM API)",
+      "use_vlm_regions": true,
+      "vlm_config_required": true
+    }
+  },
+  "vlm_test": {
+    "retries": 2,
+    "backoff_seconds": 1.5
+  }
+}

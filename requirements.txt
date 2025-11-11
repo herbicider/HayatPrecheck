@@ -1,0 +1,29 @@
+pyautogui
+pillow
+rapidfuzz
+python-Levenshtein
+
+# OCR Providers (install based on preference)
+# Tesseract (lightweight, fast initialization)
+pytesseract
+
+# EasyOCR (good accuracy, moderate initialization)
+easyocr
+
+# PaddleOCR (comprehensive text detection, CPU optimized)
+# paddlepaddle
+# paddleocr
+
+# Streamlit web app dependencies
+streamlit
+pandas
+plotly
+
+openai
+python-dotenv
+
+# GUI dependencies for coordinate_adjuster.py
+# Note: tkinter comes with most Python installations
+# If tkinter is not available, use: brew install python-tk
+opencv-python
+aiohttp

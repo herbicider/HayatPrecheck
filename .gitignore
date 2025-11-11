@@ -1,0 +1,98 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+VENV/
+
+# Secrets and credentials
+*.env
+*secret*
+*key*
+*password*
+credentials.json
+secrets.json
+
+# Log files
+*.log
+logs/
+
+# Configuration backups
+config_backup_*.json
+verification_backup_*.log
+
+# Device-specific configuration files
+*laptop.json
+*pc.json
+4kpc.json
+1080laptop.json
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE and editor configuration
+.idea/
+.vscode/
+*.swp
+*.swo
+AGENTS.md
+.claude/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.spec
+
+# Test artifacts
+.pytest_cache/
+.tox/
+.coverage
+htmlcov/
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+desktop.ini
+$RECYCLE.BIN/
+
+# Personal notes and development files
+gemini.md
+notes.md
+TODO.md
+*_notes.txt
+
+
+# Generated files and screenshots
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.tiff
+
+# Local tesseract installation (if used)
+tesseract/
+
+#config files
+config_backups/
+
+tools/
+
