@@ -86,7 +86,7 @@ class SettingsManager:
         """Load configuration from config.json file"""
         try:
             if os.path.exists(self.config_file):
-                with open(self.config_file, 'r') as f:
+                with open(self.config_file, 'r', encoding='utf-8') as f:
                     self.config = json.load(f)
                 self.logger.debug(f"Configuration loaded from {self.config_file}")  # Changed from INFO to DEBUG
                 return True
@@ -101,7 +101,7 @@ class SettingsManager:
         """Load VLM configuration from vlm_config.json file with environment variable substitution"""
         try:
             if os.path.exists(self.vlm_config_file):
-                with open(self.vlm_config_file, 'r') as f:
+                with open(self.vlm_config_file, 'r', encoding='utf-8') as f:
                     raw_config = json.load(f)
                 
                 # Substitute environment variables
@@ -119,7 +119,7 @@ class SettingsManager:
         """Load LLM configuration from llm_config.json file"""
         try:
             if os.path.exists(self.llm_config_file):
-                with open(self.llm_config_file, 'r') as f:
+                with open(self.llm_config_file, 'r', encoding='utf-8') as f:
                     self.llm_config = json.load(f)
                 self.logger.debug(f"LLM configuration loaded from {self.llm_config_file}")
                 return True
@@ -141,7 +141,7 @@ class SettingsManager:
             if create_backup:
                 self.create_backup()
             
-            with open(self.config_file, 'w') as f:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
             self.logger.info(f"Configuration saved to {self.config_file}")
             return True
@@ -160,7 +160,7 @@ class SettingsManager:
             if create_backup:
                 self.create_vlm_backup()
             
-            with open(self.vlm_config_file, 'w') as f:
+            with open(self.vlm_config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.vlm_config, f, indent=2)
             self.logger.info(f"VLM configuration saved to {self.vlm_config_file}")
             return True
@@ -179,7 +179,7 @@ class SettingsManager:
             if create_backup:
                 self.create_llm_backup()
             
-            with open(self.llm_config_file, 'w') as f:
+            with open(self.llm_config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.llm_config, f, indent=2)
             self.logger.info(f"LLM configuration saved to {self.llm_config_file}")
             return True
@@ -514,7 +514,7 @@ class SettingsManager:
             return False
         
         try:
-            with open(filepath, 'w') as f:
+            with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
             self.logger.info(f"Configuration exported to {filepath}")
             return True
@@ -525,7 +525,7 @@ class SettingsManager:
     def import_config(self, filepath: str) -> bool:
         """Import configuration from a file"""
         try:
-            with open(filepath, 'r') as f:
+            with open(filepath, 'r', encoding='utf-8') as f:
                 imported_config = json.load(f)
             
             # Validate the imported configuration
