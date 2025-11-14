@@ -896,7 +896,7 @@ def show_advanced_settings(vlm_config: Dict[str, Any], config_file: str):
             "Maximum Tokens Cap:",
             min_value=100,
             max_value=8000,
-            value=vlm_settings.get("max_tokens_cap", 4000) if vlm_settings.get("max_tokens_cap") else 4000,
+            value=vlm_settings.get("max_tokens_cap", 10000) if vlm_settings.get("max_tokens_cap") else 10000,
             step=100,
             help="Hard limit on max_tokens. System will warn and cap any profile that exceeds this value. Recommended: 3000-5000"
         )

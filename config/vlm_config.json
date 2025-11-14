@@ -16,7 +16,7 @@
       "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
       "api_key": "${GEMINI_API_KEY}",
       "model_name": "gemini-2.5-flash-lite-preview-09-2025",
-      "max_tokens": 4000,
+      "max_tokens": 10000,
       "temperature": 0.0
     },
     "online2": {
