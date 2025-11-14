@@ -473,21 +473,21 @@ class VLM_Verifier:
             return ""
 
     def _get_model_max_tokens(self, default_tokens: int = 500) -> int:
-        """Get appropriate max_tokens for the current model"""
-        model_name = self.config.get("model_name", "")
+        """Get max_tokens for the current model with optional cap
         
-        # Use configured max_tokens if explicitly set and not default
+        Simply uses the configured max_tokens from the profile.
+        Optional max_tokens_cap can prevent excessive costs/errors.
+        """
+        # Use configured max_tokens from profile
         configured_tokens = self.config.get("max_tokens", default_tokens)
-        if configured_tokens != default_tokens:
-            return configured_tokens
         
-        # Apply model-specific adjustments for default values
-        if "gemini-2.5-flash" in model_name and "lite" not in model_name:
-            return max(default_tokens, 750)  # Ensure sufficient tokens for full Gemini
-        elif "gpt-4" in model_name or "claude" in model_name:
-            return max(default_tokens, 600)  # Other large models
+        # Optional: Apply a safety cap to prevent excessive costs/errors
+        max_tokens_cap = self.settings.get("max_tokens_cap", None)
+        if max_tokens_cap and configured_tokens > max_tokens_cap:
+            self.logger.warning(f"Capping max_tokens from {configured_tokens} to {max_tokens_cap} (safety limit)")
+            return max_tokens_cap
         
-        return default_tokens
+        return configured_tokens
 
     def _image_tokens(self, w: int, h: int) -> int:
         """Approximate image token count for VLM as patch count."""
@@ -627,8 +627,7 @@ class VLM_Verifier:
             model_name = self.config.get("model_name", "")
             max_tokens = self._get_model_max_tokens(self.config.get("max_tokens", 500))
             
-            if max_tokens > self.config.get("max_tokens", 500):
-                self.logger.debug(f"Using higher token limit ({max_tokens}) for verification with {model_name}")
+            self.logger.debug(f"Single-shot: Model={model_name}, max_tokens={max_tokens}")
             
             # Call API
             chat_completion = self.client.chat.completions.create(
@@ -644,9 +643,12 @@ class VLM_Verifier:
             
             if not response_content:
                 self.logger.error("Single-shot: Received None/empty response from VLM")
+                self.logger.error(f"Single-shot: Model={model_name}, max_tokens={max_tokens}, temperature={self.config.get('temperature', 0.0)}")
                 # Log raw choice for debugging
                 try:
                     self.logger.debug(f"Single-shot raw choice: {str(chat_completion.choices[0])[:1000]}")
+                    if hasattr(chat_completion.choices[0], 'finish_reason'):
+                        self.logger.error(f"Single-shot finish_reason: {chat_completion.choices[0].finish_reason}")
                 except Exception:
                     pass
                 return self._get_default_category_scores()

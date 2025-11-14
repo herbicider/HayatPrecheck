@@ -1,11 +1,11 @@
 {
-  "_SECURITY_NOTE": "NEVER hardcode API keys in this file! Always use environment variables stored in .env file. Use ${VARIABLE_NAME} syntax to reference .env variables. Example: 'api_key': '${GEMINI_API_KEY}'",
+  "_SECURITY_NOTE": "NEVER hardcode API keys in this file! Always use environment variables stored in .env file. Use ${VARIABLE_NAME} syntax to reference .env variables. Example: 'api_key': 'AIzaSyBOp7fvlOj1zxfNhaMaDyemHO30T4Z3L-8'",
   "current_profile": "online1",
   "profiles": {
     "local": {
       "name": "Local Model (Ollama)",
       "base_url": "http://10.147.17.98:1234/v1",
-      "api_key": "${LOCAL_API_KEY}",
+      "api_key": "",
       "_note": "API key references .env file - DO NOT hardcode keys here",
       "model_name": "",
       "max_tokens": 1500,
@@ -14,16 +14,15 @@
     "online1": {
       "name": "Google Gemini",
       "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-      "api_key": "${GEMINI_API_KEY}",
-      "_note": "API key references .env file - DO NOT hardcode keys here",
+      "api_key": "AIzaSyBOp7fvlOj1zxfNhaMaDyemHO30T4Z3L-8",
       "model_name": "gemini-2.5-flash-lite-preview-09-2025",
-      "max_tokens": 2000,
+      "max_tokens": 4000,
       "temperature": 0.0
     },
     "online2": {
       "name": "OpenAI Compatible API",
       "base_url": "http://localhost:1234/v1",
-      "api_key": "${OPENAI_API_KEY}",
+      "api_key": "",
       "_note": "API key references .env file - DO NOT hardcode keys here",
       "model_name": "gpt-4-vision-preview",
       "max_tokens": 1500,
@@ -54,6 +53,8 @@
     "brightness_boost": 1.1,
     "max_image_tokens_total": 3072,
     "max_image_tokens_per_image": 1536,
-    "debug_save_images": true
+    "debug_save_images": true,
+    "max_tokens_cap": null,
+    "_max_tokens_cap_help": "Optional safety limit for max_tokens. Set to null (no limit) or a number like 4000 to prevent excessive API costs. System will warn and cap if profile max_tokens exceeds this value."
   }
 }
