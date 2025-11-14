@@ -880,6 +880,31 @@ def show_advanced_settings(vlm_config: Dict[str, Any], config_file: str):
         if max_image_tokens_per_image > max_image_tokens_total:
             st.warning("Per-image token cap cannot exceed total tokens. It will be clamped on save.")
     
+    # Optional maximum token safety cap
+    st.markdown("---")
+    st.write("**🛡️ Safety Settings:**")
+    st.info("💡 **Optional Cap:** Set a maximum token limit to prevent excessive API costs or errors. Leave unchecked for no limit.")
+    
+    enable_cap = st.checkbox(
+        "Enable Max Tokens Cap",
+        value=vlm_settings.get("max_tokens_cap") is not None,
+        help="Enable a safety limit on max_tokens to prevent runaway costs"
+    )
+    
+    if enable_cap:
+        max_tokens_cap = st.number_input(
+            "Maximum Tokens Cap:",
+            min_value=100,
+            max_value=8000,
+            value=vlm_settings.get("max_tokens_cap", 4000) if vlm_settings.get("max_tokens_cap") else 4000,
+            step=100,
+            help="Hard limit on max_tokens. System will warn and cap any profile that exceeds this value. Recommended: 3000-5000"
+        )
+        st.caption(f"🔍 **Example:** If profile has max_tokens=6000 and cap={max_tokens_cap}, system will use {max_tokens_cap} and log a warning.")
+    else:
+        max_tokens_cap = None
+        st.caption("✅ **No limit:** Profiles can use any max_tokens value they specify.")
+    
     # Save advanced settings
     if st.button("💾 Save Advanced Settings", type="primary"):
         vlm_config["vlm_settings"] = {
@@ -889,7 +914,9 @@ def show_advanced_settings(vlm_config: Dict[str, Any], config_file: str):
             "resize_max_width": resize_max_width,
             "resize_max_height": resize_max_height,
             "max_image_tokens_total": int(max_image_tokens_total),
-            "max_image_tokens_per_image": int(min(max_image_tokens_per_image, max_image_tokens_total))
+            "max_image_tokens_per_image": int(min(max_image_tokens_per_image, max_image_tokens_total)),
+            "max_tokens_cap": max_tokens_cap,
+            "_max_tokens_cap_help": "Optional safety limit for max_tokens. Set to null (no limit) or a number like 4000 to prevent excessive API costs. System will warn and cap if profile max_tokens exceeds this value."
         }
         
         if save_vlm_config(vlm_config, config_file):
