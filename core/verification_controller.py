@@ -985,7 +985,7 @@ class VerificationController:
 def load_config(path: str) -> Optional[Dict[str, Any]]:
     """Loads configuration from a JSON file."""
     try:
-        with open(path, "r") as f:
+        with open(path, "r", encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
         logging.error(f"Configuration file not found: {path}")

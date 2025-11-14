@@ -23,6 +23,9 @@ _ocr_provider_cache = {}
 # Static flag to prevent repeated availability logging
 _availability_logged = False
 
+# Static flag to prevent repeated fallback logging
+_fallback_logged = {}
+
 # Counter for cache usage logging
 _cache_usage_count = 0
 
@@ -131,11 +134,20 @@ def get_cached_ocr_provider(provider_type: str, advanced_settings: Dict[str, Any
     
     # If requested provider is not available, use smart fallback
     if provider_type not in available_providers:
+        global _fallback_logged
+        fallback_key = f"{provider_type}_fallback"
+        
         if "easyocr" in available_providers:
-            logging.warning(f"{provider_type} not available, falling back to EasyOCR")
+            # Only log this fallback warning once
+            if fallback_key not in _fallback_logged:
+                logging.warning(f"{provider_type} not available, falling back to EasyOCR")
+                _fallback_logged[fallback_key] = True
             provider_type = "easyocr"
         elif "tesseract" in available_providers:
-            logging.warning(f"{provider_type} not available, falling back to Tesseract")
+            # Only log this fallback warning once
+            if fallback_key not in _fallback_logged:
+                logging.warning(f"{provider_type} not available, falling back to Tesseract")
+                _fallback_logged[fallback_key] = True
             provider_type = "tesseract"
         else:
             raise ImportError("No OCR providers available")

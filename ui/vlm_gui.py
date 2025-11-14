@@ -92,7 +92,7 @@ class VLMRegionSelector:
         """Load VLM configuration from file with environment variable substitution"""
         try:
             if os.path.exists(self.vlm_config_file):
-                with open(self.vlm_config_file, 'r') as f:
+                with open(self.vlm_config_file, 'r', encoding='utf-8') as f:
                     raw_config = json.load(f)
                 
                 # Substitute environment variables
@@ -441,13 +441,13 @@ Return your response in this exact JSON format (no reasoning, no explanation):
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
                 backup_file = os.path.join(backup_dir, f"vlm_config_backup_{timestamp}.json")
                 
-                with open(self.vlm_config_file, 'r') as f:
+                with open(self.vlm_config_file, 'r', encoding='utf-8') as f:
                     backup_content = f.read()
-                with open(backup_file, 'w') as f:
+                with open(backup_file, 'w', encoding='utf-8') as f:
                     f.write(backup_content)
             
             # Save new configuration
-            with open(self.vlm_config_file, 'w') as f:
+            with open(self.vlm_config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.vlm_config, f, indent=2)
             
             self.status_var.set("Configuration saved successfully!")

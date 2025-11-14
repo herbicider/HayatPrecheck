@@ -114,7 +114,7 @@ class SettingsGUI:
         try:
             vlm_path = os.path.join("config", "vlm_config.json")
             if os.path.exists(vlm_path):
-                with open(vlm_path, 'r') as f:
+                with open(vlm_path, 'r', encoding='utf-8') as f:
                     self.vlm_config = json.load(f)
             else:
                 self.vlm_config = {
@@ -145,7 +145,7 @@ class SettingsGUI:
                     # Try in parent directory config folder
                     config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "config.json")
             
-            with open(config_path, 'r') as f:
+            with open(config_path, 'r', encoding='utf-8') as f:
                 self.config = json.load(f)
                 
             # Validate config structure
@@ -174,7 +174,7 @@ class SettingsGUI:
             if not os.path.exists(config_dir):
                 os.makedirs(config_dir)
                 
-            with open(config_path, 'w') as f:
+            with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
             messagebox.showinfo("Success", "Configuration saved successfully!")
             self.update_status("Configuration saved")
@@ -200,12 +200,12 @@ class SettingsGUI:
                 os.makedirs(backup_dir, exist_ok=True)
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
                 backup_file = os.path.join(backup_dir, f"vlm_config_backup_{timestamp}.json")
-                with open(vlm_path, 'r') as f:
+                with open(vlm_path, 'r', encoding='utf-8') as f:
                     content = f.read()
-                with open(backup_file, 'w') as f:
+                with open(backup_file, 'w', encoding='utf-8') as f:
                     f.write(content)
             # Save new
-            with open(vlm_path, 'w') as f:
+            with open(vlm_path, 'w', encoding='utf-8') as f:
                 json.dump(self.vlm_config, f, indent=2)
             messagebox.showinfo("Success", "VLM configuration saved successfully!")
             self.update_status("VLM configuration saved")
@@ -228,7 +228,7 @@ class SettingsGUI:
         )
         if file_path:
             try:
-                with open(file_path, 'r') as f:
+                with open(file_path, 'r', encoding='utf-8') as f:
                     new_config = json.load(f)
                 self.config = new_config
                 self.update_field_options()
@@ -252,7 +252,7 @@ class SettingsGUI:
         )
         if file_path:
             try:
-                with open(file_path, 'w') as f:
+                with open(file_path, 'w', encoding='utf-8') as f:
                     json.dump(self.config, f, indent=2)
                 messagebox.showinfo("Success", f"Configuration exported to {file_path}")
                 self.update_status(f"Configuration exported to {os.path.basename(file_path)}")
