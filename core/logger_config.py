@@ -6,6 +6,22 @@ DEFAULT_LOG_FILE = "verification.log"
 DEFAULT_MAX_BYTES = 10_000_000  # 10 MB
 DEFAULT_BACKUP_COUNT = 5
 
+# Messages that create excessive startup noise (missing Tesseract, Paddle warnings, etc.)
+_SUPPRESSED_LOG_PATTERNS = [
+    "tesseract not available",
+    "auto-selected paddleocr",
+    "module 'paddle' has no attribute 'disable_static_logging'",
+    "using cpu. note: this module is much faster with a gpu.",
+]
+
+
+class _SuppressNoiseFilter(logging.Filter):
+    """Filter out repetitive informational/warning logs from third-party libs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage().lower()
+        return not any(pattern in message for pattern in _SUPPRESSED_LOG_PATTERNS)
+
 
 def setup_logging(
     log_file: str = DEFAULT_LOG_FILE,
@@ -29,6 +45,8 @@ def setup_logging(
 
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
+    noise_filter = _SuppressNoiseFilter()
+
     file_handler = RotatingFileHandler(
         log_file,
         maxBytes=max_bytes,
@@ -36,6 +54,7 @@ def setup_logging(
         encoding='utf-8'
     )
     file_handler.setFormatter(formatter)
+    file_handler.addFilter(noise_filter)
     logger.addHandler(file_handler)
 
     if add_stream:
@@ -43,6 +62,7 @@ def setup_logging(
         if not any(isinstance(h, logging.StreamHandler) and not isinstance(h, RotatingFileHandler) for h in logger.handlers):
             stream_handler = logging.StreamHandler()
             stream_handler.setFormatter(formatter)
+            stream_handler.addFilter(noise_filter)
             logger.addHandler(stream_handler)
     
     # Reduce verbosity of external libraries

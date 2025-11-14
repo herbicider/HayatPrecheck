@@ -26,6 +26,9 @@ _availability_logged = False
 # Static flag to prevent repeated fallback logging
 _fallback_logged = {}
 
+# Cache for resolved provider types (maps requested -> actual)
+_resolved_provider_types = {}
+
 # Counter for cache usage logging
 _cache_usage_count = 0
 
@@ -36,16 +39,13 @@ def check_gpu_availability():
         if torch.cuda.is_available():
             device_count = torch.cuda.device_count()
             device_name = torch.cuda.get_device_name(0) if device_count > 0 else "Unknown"
-            logging.info(f"CUDA GPU available: {device_name} ({device_count} device(s))")
+            logging.info(f"GPU: {device_name} ({device_count} device(s))")
             return True
         else:
-            logging.info("CUDA GPU not available")
             return False
     except ImportError:
-        logging.info("PyTorch not available - cannot check GPU status")
         return False
-    except Exception as e:
-        logging.warning(f"Error checking GPU availability: {e}")
+    except Exception:
         return False
 
 def auto_select_ocr_provider():
@@ -53,19 +53,19 @@ def auto_select_ocr_provider():
     available_providers = check_ocr_availability()
     gpu_available = check_gpu_availability()
     
-    # Decision logic: EasyOCR with GPU > Tesseract > PaddleOCR > EasyOCR without GPU
+    # Decision logic: EasyOCR with GPU > Tesseract > EasyOCR without GPU (skip PaddleOCR - unstable)
     if gpu_available and "easyocr" in available_providers:
         logging.info("Auto-selected EasyOCR with GPU acceleration (best accuracy)")
         return "easyocr", True  # provider, use_gpu
     elif "tesseract" in available_providers:
         logging.info("Auto-selected Tesseract (good speed, widely compatible)")
         return "tesseract", False
-    elif "paddleocr" in available_providers:
-        logging.info("Auto-selected PaddleOCR (good accuracy, CPU optimized)")
-        return "paddleocr", False
     elif "easyocr" in available_providers:
-        logging.info("Auto-selected EasyOCR with CPU (GPU not available)")
+        logging.info("Auto-selected EasyOCR with CPU (best available option)")
         return "easyocr", False
+    elif "paddleocr" in available_providers:
+        logging.info("Auto-selected PaddleOCR (CPU optimized)")
+        return "paddleocr", False
     else:
         raise ImportError("No suitable OCR provider available")
 
@@ -79,11 +79,8 @@ def check_ocr_availability():
     try:
         import easyocr
         available_providers.append("easyocr")
-        if not _availability_logged:
-            logging.info("EasyOCR is available")
     except ImportError:
-        if not _availability_logged:
-            logging.warning("EasyOCR not available - install with: pip install easyocr")
+        pass
     
     # Check Tesseract
     try:
@@ -91,33 +88,36 @@ def check_ocr_availability():
         # Try to run tesseract to verify it's actually working
         pytesseract.get_tesseract_version()
         available_providers.append("tesseract")
-        if not _availability_logged:
-            logging.info("Tesseract is available")
-    except Exception as e:
-        if not _availability_logged:
-            logging.warning(f"Tesseract not available: {e}")
+    except Exception:
+        pass  # Silently skip if not available
     
     # Check PaddleOCR
     try:
         import paddleocr
         available_providers.append("paddleocr")
-        if not _availability_logged:
-            logging.info("PaddleOCR is available")
     except ImportError:
-        if not _availability_logged:
-            logging.warning("PaddleOCR not available - install with: pip install paddlepaddle paddleocr")
+        pass
     
-    # Mark that we've logged availability info (only log once)
-    _availability_logged = True
+    # Log availability summary only once
+    if not _availability_logged:
+        if available_providers:
+            logging.info(f"Available OCR providers: {', '.join(available_providers)}")
+        else:
+            logging.error("No OCR providers available! Please install at least one: EasyOCR, Tesseract, or PaddleOCR")
+            raise ImportError("No OCR providers available")
+        _availability_logged = True
     
     if not available_providers:
-        logging.error("No OCR providers available! Please install at least one: EasyOCR, Tesseract, or PaddleOCR")
         raise ImportError("No OCR providers available")
     
     return available_providers
 
 def get_cached_ocr_provider(provider_type: str, advanced_settings: Dict[str, Any]):
     """Get a cached OCR provider instance with smart fallback logic."""
+    global _resolved_provider_types, _fallback_logged
+    
+    original_provider_type = provider_type
+    
     # Handle auto-selection
     if provider_type == "auto":
         provider_type, auto_gpu_setting = auto_select_ocr_provider()
@@ -129,28 +129,32 @@ def get_cached_ocr_provider(provider_type: str, advanced_settings: Dict[str, Any
             advanced_settings["easyocr"]["use_gpu"] = auto_gpu_setting
         logging.info(f"Auto-selected provider: {provider_type} (GPU: {auto_gpu_setting if provider_type == 'easyocr' else 'N/A'})")
     
-    # Check available providers
-    available_providers = check_ocr_availability()
-    
-    # If requested provider is not available, use smart fallback
-    if provider_type not in available_providers:
-        global _fallback_logged
-        fallback_key = f"{provider_type}_fallback"
+    # Check if we've already resolved this provider type
+    if original_provider_type in _resolved_provider_types:
+        provider_type = _resolved_provider_types[original_provider_type]
+    else:
+        # Check available providers
+        available_providers = check_ocr_availability()
         
-        if "easyocr" in available_providers:
-            # Only log this fallback warning once
+        # If requested provider is not available, use smart fallback
+        if provider_type not in available_providers:
+            fallback_key = f"{provider_type}_fallback"
+            old_provider = provider_type
+            
+            if "tesseract" in available_providers:
+                provider_type = "tesseract"
+            elif "easyocr" in available_providers:
+                provider_type = "easyocr"
+            else:
+                raise ImportError("No OCR providers available")
+            
+            # Only log fallback once, and use INFO level for automatic fallback (not a warning)
             if fallback_key not in _fallback_logged:
-                logging.warning(f"{provider_type} not available, falling back to EasyOCR")
+                logging.info(f"OCR provider '{old_provider}' not available, using {provider_type} instead")
                 _fallback_logged[fallback_key] = True
-            provider_type = "easyocr"
-        elif "tesseract" in available_providers:
-            # Only log this fallback warning once
-            if fallback_key not in _fallback_logged:
-                logging.warning(f"{provider_type} not available, falling back to Tesseract")
-                _fallback_logged[fallback_key] = True
-            provider_type = "tesseract"
-        else:
-            raise ImportError("No OCR providers available")
+        
+        # Cache the resolved provider type
+        _resolved_provider_types[original_provider_type] = provider_type
     
     # Create cache key based on provider type and relevant settings
     cache_key = f"{provider_type}_{hash(str(sorted(advanced_settings.items())))}"
@@ -430,8 +434,11 @@ class PaddleOcrProvider(OcrProvider):
             
             paddleocr_config = self.advanced_settings.get("paddleocr", {})
             
-            # Suppress PaddlePaddle logging by default
-            paddle.disable_static_logging()
+            # Suppress PaddlePaddle logging if available (newer versions)
+            try:
+                paddle.disable_static()
+            except AttributeError:
+                pass  # Older versions don't have this method
             
             config = {
                 'use_angle_cls': paddleocr_config.get("use_angle_cls", True),
