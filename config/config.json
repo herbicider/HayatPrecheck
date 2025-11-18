@@ -164,7 +164,7 @@
     "config_options": "--psm 7",
     "fallback_config": "--psm 8"
   },
-  "ocr_provider": "easyocr",
+  "ocr_provider": "auto",
   "easyocr": {
     "use_gpu": true,
     "confidence_threshold": 0.5

@@ -112,14 +112,37 @@ def load_vlm_config(config_file: str) -> Optional[Dict[str, Any]]:
         else:
             # Create default config if it doesn't exist
             default_config = {
-                "vlm_config": {
-                    "base_url": "http://localhost:8080/v1",
-                    "api_key": "llamacpp",
-                    "model_name": "your-model-name",
-                    "system_prompt": "You are a prescription verification assistant. Compare the entered prescription data (first image) with the source prescription (second image).\\n\\nAnalyze the following fields if visible:\\n- patient_name\\n- prescriber_name\\n- drug_name\\n- direction_sig (directions for use)\\n\\nFor each field, provide a confidence score from 0-100 based on how well the entered data matches the source:\\n- 90-100: Perfect or near-perfect match\\n- 70-89: Good match with minor differences\\n- 50-69: Moderate match with some discrepancies\\n- 30-49: Poor match with significant differences\\n- 0-29: Very poor match or completely different\\n\\nFormat your response as:\\nfield_name: score\\n\\nOnly include fields that are clearly visible in both images.",
-                    "user_prompt": "Please compare these prescription images. First image shows entered data, second shows the source prescription. Analyze all visible prescription fields and provide confidence scores.",
-                    "max_tokens": 500,
-                    "temperature": 0.1
+                "_SECURITY_NOTE": "NEVER hardcode API keys in this file! Always use environment variables stored in .env file. Use ${VARIABLE_NAME} syntax to reference .env variables.",
+                "current_profile": "local",
+                "profiles": {
+                    "local": {
+                        "name": "Local Model",
+                        "base_url": "http://localhost:1234/v1",
+                        "api_key": "${LOCAL_API_KEY}",
+                        "model_name": "llava:7b",
+                        "max_tokens": 1500,
+                        "temperature": 0.1
+                    },
+                    "online1": {
+                        "name": "Google Gemini",
+                        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+                        "api_key": "${GEMINI_API_KEY}",
+                        "model_name": "gemini-2.5-flash-lite-preview-09-2025",
+                        "max_tokens": 1500,
+                        "temperature": 0.1
+                    },
+                    "online2": {
+                        "name": "OpenAI Compatible API",
+                        "base_url": "http://localhost:1234/v1",
+                        "api_key": "${OPENAI_API_KEY}",
+                        "model_name": "gpt-4-vision-preview",
+                        "max_tokens": 1500,
+                        "temperature": 0.1
+                    }
+                },
+                "prompts": {
+                    "oneshot_system_prompt": "You are a prescription verification assistant. Compare the entered prescription data (first image) with the source prescription (second image).\\n\\nAnalyze the following fields if visible:\\n- patient_name\\n- prescriber_name\\n- drug_name\\n- direction_sig (directions for use)\\n\\nFor each field, provide a confidence score from 0-100 based on how well the entered data matches the source:\\n- 90-100: Perfect or near-perfect match\\n- 70-89: Good match with minor differences\\n- 50-69: Moderate match with some discrepancies\\n- 30-49: Poor match with significant differences\\n- 0-29: Very poor match or completely different\\n\\nFormat your response as:\\nfield_name: score\\n\\nOnly include fields that are clearly visible in both images.",
+                    "oneshot_user_prompt": "Please compare these prescription images. First image shows entered data, second shows the source prescription. Analyze all visible prescription fields and provide confidence scores."
                 },
                 "vlm_regions": {
                     "data_entry": [0, 0, 800, 600],
@@ -136,7 +159,8 @@ def load_vlm_config(config_file: str) -> Optional[Dict[str, Any]]:
                 }
             }
             save_vlm_config(default_config, config_file)
-            return default_config
+            # Return with substituted env vars
+            return substitute_env_vars(default_config)
     except Exception as e:
         st.error(f"Error loading VLM config: {e}")
         return None
@@ -150,6 +174,89 @@ def save_vlm_config(config: Dict[str, Any], config_file: str) -> bool:
     except Exception as e:
         st.error(f"Error saving VLM config: {e}")
         return False
+
+def update_env_file(key: str, value: str) -> bool:
+    """
+    Update or add a key-value pair in the .env file.
+    
+    Args:
+        key: Environment variable name (e.g., 'GEMINI_API_KEY')
+        value: Environment variable value
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        env_file = '.env'
+        env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), env_file)
+        
+        # Read existing .env content
+        if os.path.exists(env_path):
+            with open(env_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        else:
+            lines = []
+        
+        # Find and update the key, or add it if not found
+        key_found = False
+        new_lines = []
+        
+        for line in lines:
+            # Skip empty lines and comments
+            if line.strip().startswith('#') or not line.strip():
+                new_lines.append(line)
+                continue
+            
+            # Check if this line contains our key
+            if '=' in line:
+                current_key = line.split('=')[0].strip()
+                if current_key == key:
+                    # Update existing key
+                    new_lines.append(f'{key}="{value}"\n')
+                    key_found = True
+                else:
+                    new_lines.append(line)
+            else:
+                new_lines.append(line)
+        
+        # If key wasn't found, add it at the end
+        if not key_found:
+            # Add a newline before if file doesn't end with one
+            if new_lines and not new_lines[-1].endswith('\n'):
+                new_lines.append('\n')
+            new_lines.append(f'{key}="{value}"\n')
+        
+        # Write back to .env file
+        with open(env_path, 'w', encoding='utf-8') as f:
+            f.writelines(new_lines)
+        
+        # Reload environment variables
+        load_dotenv(override=True)
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"Error updating .env file: {e}")
+        return False
+
+def get_env_var_name_for_profile(profile_name: str) -> str:
+    """
+    Get the appropriate environment variable name for a profile's API key.
+    
+    Args:
+        profile_name: Profile name (e.g., 'local', 'online1', 'online2')
+        
+    Returns:
+        str: Environment variable name (e.g., 'GEMINI_API_KEY')
+    """
+    # Map profiles to their standard environment variable names
+    env_var_mapping = {
+        'local': 'LOCAL_API_KEY',
+        'online1': 'GEMINI_API_KEY',
+        'online2': 'OPENAI_API_KEY'
+    }
+    
+    return env_var_mapping.get(profile_name, f'{profile_name.upper()}_API_KEY')
 
 def show_prompt_customization(vlm_config: Dict[str, Any], config_file: str):
     """Show VLM prompt customization for one-shot mode"""
@@ -269,6 +376,43 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
     profiles = vlm_config.get("profiles", {})
     vlm_settings = vlm_config.get("vlm_settings", {})
     
+    # Security notice at the top
+    st.info("🔐 **Security:** API keys are now stored securely in the `.env` file (not tracked by git) instead of being hardcoded in configuration files. This follows security best practices and prevents accidental exposure of secrets.")
+    
+    # Optional: Show how it works
+    with st.expander("ℹ️ How API Key Storage Works", expanded=False):
+        st.markdown("""
+        **Secure API Key Storage Architecture:**
+        
+        1. **You enter API key** in Streamlit UI → Saved to `.env` file
+        2. **Config file stores reference** → Uses `${GEMINI_API_KEY}` syntax  
+        3. **Application reads** → Loads from `.env` at runtime
+        4. **Git ignores** → `.env` file never committed to repository
+        
+        **Example:**
+        ```bash
+        # .env file (secure, not tracked by git)
+        GEMINI_API_KEY="AIzaSyDiVSE_EI1Tt2cuGbgo5P7ySV1nXEYPwnQ"
+        ```
+        
+        ```json
+        // vlm_config.json (tracked by git, safe to share)
+        {
+          "profiles": {
+            "online1": {
+              "api_key": "${GEMINI_API_KEY}"  ← Reference, not actual key
+            }
+          }
+        }
+        ```
+        
+        **Benefits:**
+        - ✅ Keys never accidentally committed to git
+        - ✅ Easy to rotate keys without changing code
+        - ✅ Different keys for dev/staging/production
+        - ✅ HIPAA compliant secret management
+        """)
+    
     with st.expander("🤖 Model Configuration", expanded=True):
         
         # Profile selection
@@ -320,13 +464,28 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
                 key=f"{selected_profile}_url"
             )
             
+            # Get the environment variable name for this profile
+            env_var_name = get_env_var_name_for_profile(selected_profile)
+            
+            # Get current API key from environment (after substitution)
+            # The raw config might have ${VAR_NAME}, but after substitution it's the actual value
+            current_api_key = current_profile_config.get("api_key", "")
+            
+            # If it's still a variable reference, get the actual value from environment
+            if current_api_key.startswith("${") and current_api_key.endswith("}"):
+                var_name = current_api_key[2:-1]
+                current_api_key = os.getenv(var_name, "")
+            
             api_key = st.text_input(
                 "API Key:",
-                value=current_profile_config.get("api_key", "ollama"),
+                value=current_api_key,
                 type="password",
-                help="API key or authentication token",
+                help=f"API key will be saved to .env file as {env_var_name}",
                 key=f"{selected_profile}_key"
             )
+            
+            # Show info about environment variable storage
+            st.caption(f"🔐 Stored as `{env_var_name}` in `.env` file (not tracked by git)")
         
         with col2:
             st.write("**⚙️ Model Parameters:**")
@@ -359,14 +518,27 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
     
         # Save profile button
         if st.button("💾 Save Profile Settings", type="primary", key="save_profile"):
+            # Get the environment variable name for this profile
+            env_var_name = get_env_var_name_for_profile(selected_profile)
+            
+            # Save API key to .env file
+            if api_key:
+                if update_env_file(env_var_name, api_key):
+                    st.success(f"✅ API key saved to .env as {env_var_name}")
+                else:
+                    st.error(f"❌ Failed to save API key to .env file")
+                    # Don't proceed if .env update failed
+                    st.stop()
+            
             # Update the selected profile with new values
+            # Use environment variable reference for API key instead of hardcoding
             if "profiles" not in vlm_config:
                 vlm_config["profiles"] = {}
             
             vlm_config["profiles"][selected_profile] = {
                 "name": profile_name,
                 "base_url": base_url,
-                "api_key": api_key,
+                "api_key": f"${{{env_var_name}}}" if api_key else "",  # Use ${VAR_NAME} syntax
                 "model_name": model_name,
                 "max_tokens": max_tokens,
                 "temperature": temperature
@@ -377,8 +549,11 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
             
             if save_vlm_config(vlm_config, config_file):
                 st.success(f"✅ {selected_profile.title()} profile saved!")
-                time.sleep(1)
+                st.info(f"🔐 API key stored securely in .env file as `{env_var_name}`")
+                time.sleep(1.5)
                 st.rerun()
+            else:
+                st.error("❌ Failed to save configuration file")
         
         # Profile management buttons
         st.write("---")
@@ -393,11 +568,14 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
         
         with mgmt_col2:
             if st.button("🗑️ Reset Profile", help="Reset current profile to defaults"):
+                # Get environment variable name for this profile
+                env_var_name = get_env_var_name_for_profile(selected_profile)
+                
                 default_configs = {
                     "local": {
                         "name": "Local Model",
                         "base_url": "http://localhost:1234/v1",
-                        "api_key": "ollama",
+                        "api_key": "${LOCAL_API_KEY}",  # Use env var reference
                         "model_name": "llava:7b",
                         "max_tokens": 1500,
                         "temperature": 0.1
@@ -405,7 +583,7 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
                     "online1": {
                         "name": "Google Gemini",
                         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-                        "api_key": "your-api-key",
+                        "api_key": "${GEMINI_API_KEY}",  # Use env var reference
                         "model_name": "gemini-2.5-flash-lite-preview-09-2025",
                         "max_tokens": 1500,
                         "temperature": 0.1
@@ -413,7 +591,7 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
                     "online2": {
                         "name": "OpenAI Compatible API",
                         "base_url": "http://localhost:1234/v1",
-                        "api_key": "your-api-key",
+                        "api_key": "${OPENAI_API_KEY}",  # Use env var reference
                         "model_name": "gpt-4-vision-preview",
                         "max_tokens": 1500,
                         "temperature": 0.1
@@ -424,7 +602,8 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
                     vlm_config["profiles"][selected_profile] = default_configs[selected_profile]
                     if save_vlm_config(vlm_config, config_file):
                         st.success(f"✅ {selected_profile.title()} reset to defaults!")
-                        time.sleep(1)
+                        st.info(f"🔐 API key will be read from `{env_var_name}` in .env file")
+                        time.sleep(1.5)
                         st.rerun()
         
         with mgmt_col3:
