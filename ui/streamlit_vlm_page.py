@@ -113,29 +113,29 @@ def load_vlm_config(config_file: str) -> Optional[Dict[str, Any]]:
             # Create default config if it doesn't exist
             default_config = {
                 "_SECURITY_NOTE": "NEVER hardcode API keys in this file! Always use environment variables stored in .env file. Use ${VARIABLE_NAME} syntax to reference .env variables.",
-                "current_profile": "local",
+                "current_profile": "profile1",
                 "profiles": {
-                    "local": {
-                        "name": "Local Model",
+                    "profile1": {
+                        "name": "AI Profile 1",
                         "base_url": "http://localhost:1234/v1",
-                        "api_key": "${LOCAL_API_KEY}",
-                        "model_name": "llava:7b",
+                        "api_key": "${VLM_API_KEY_1}",
+                        "model_name": "your-model-name",
                         "max_tokens": 1500,
                         "temperature": 0.1
                     },
-                    "online1": {
-                        "name": "Google Gemini",
-                        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-                        "api_key": "${GEMINI_API_KEY}",
-                        "model_name": "gemini-2.5-flash-lite-preview-09-2025",
+                    "profile2": {
+                        "name": "AI Profile 2",
+                        "base_url": "http://localhost:1234/v1",
+                        "api_key": "${VLM_API_KEY_2}",
+                        "model_name": "your-model-name",
                         "max_tokens": 1500,
                         "temperature": 0.1
                     },
-                    "online2": {
-                        "name": "OpenAI Compatible API",
+                    "profile3": {
+                        "name": "AI Profile 3",
                         "base_url": "http://localhost:1234/v1",
-                        "api_key": "${OPENAI_API_KEY}",
-                        "model_name": "gpt-4-vision-preview",
+                        "api_key": "${VLM_API_KEY_3}",
+                        "model_name": "your-model-name",
                         "max_tokens": 1500,
                         "temperature": 0.1
                     }
@@ -244,19 +244,19 @@ def get_env_var_name_for_profile(profile_name: str) -> str:
     Get the appropriate environment variable name for a profile's API key.
     
     Args:
-        profile_name: Profile name (e.g., 'local', 'online1', 'online2')
+        profile_name: Profile name (e.g., 'profile1', 'profile2', 'profile3')
         
     Returns:
-        str: Environment variable name (e.g., 'GEMINI_API_KEY')
+        str: Environment variable name (e.g., 'VLM_API_KEY_1')
     """
-    # Map profiles to their standard environment variable names
+    # Map profiles to their generic environment variable names
     env_var_mapping = {
-        'local': 'LOCAL_API_KEY',
-        'online1': 'GEMINI_API_KEY',
-        'online2': 'OPENAI_API_KEY'
+        'profile1': 'VLM_API_KEY_1',
+        'profile2': 'VLM_API_KEY_2',
+        'profile3': 'VLM_API_KEY_3'
     }
     
-    return env_var_mapping.get(profile_name, f'{profile_name.upper()}_API_KEY')
+    return env_var_mapping.get(profile_name, 'VLM_API_KEY_1')
 
 def show_prompt_customization(vlm_config: Dict[str, Any], config_file: str):
     """Show VLM prompt customization for one-shot mode"""
@@ -372,7 +372,7 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
     """Show VLM model configuration settings with multiple profiles"""
     
     # Get current profile and profiles
-    current_profile = vlm_config.get("current_profile", "online1")
+    current_profile = vlm_config.get("current_profile", "profile1")
     profiles = vlm_config.get("profiles", {})
     vlm_settings = vlm_config.get("vlm_settings", {})
     
@@ -392,15 +392,16 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
         **Example:**
         ```bash
         # .env file (secure, not tracked by git)
-        GEMINI_API_KEY="AIzaSyDiVSE_EI1Tt2cuGbgo5P7ySV1nXEYPwnQ"
+        VLM_API_KEY_1="your-api-key-here"
+        VLM_API_KEY_2="another-api-key"
         ```
         
         ```json
         // vlm_config.json (tracked by git, safe to share)
         {
           "profiles": {
-            "online1": {
-              "api_key": "${GEMINI_API_KEY}"  ← Reference, not actual key
+            "profile1": {
+              "api_key": "${VLM_API_KEY_1}"  ← Reference, not actual key
             }
           }
         }
@@ -417,7 +418,24 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
         
         # Profile selection
         st.write("**👥 VLM Profile Management:**")
-        st.info("💡 **Multiple Profiles:** Save up to 3 different VLM configurations (local, online1, online2) for easy switching")
+        st.info("💡 **Multiple Profiles:** Save up to 3 different VLM configurations (Profile 1, 2, 3) for easy switching between models")
+        
+        # Common API endpoints helper
+        with st.expander("📡 Common API Endpoints (OpenAI Compatible)", expanded=False):
+            st.markdown("""
+            **Popular OpenAI-Compatible Endpoints:**
+            
+            - **Ollama (Local)**: `http://localhost:11434/v1`
+            - **LM Studio (Local)**: `http://localhost:1234/v1`
+            - **LlamaFile (Local)**: `http://localhost:8080/v1`
+            - **OpenAI**: `https://api.openai.com/v1`
+            - **Google Gemini**: `https://generativelanguage.googleapis.com/v1beta/openai/`
+            - **xAI (Grok)**: `https://api.x.ai/v1`
+            - **OpenRouter**: `https://openrouter.ai/api/v1`
+            - **Together.ai**: `https://api.together.xyz/v1`
+            
+            💡 All use OpenAI-compatible API format - just change the base URL and API key!
+            """)
         
         profile_col1, profile_col2 = st.columns([3, 1])
         
@@ -572,27 +590,27 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
                 env_var_name = get_env_var_name_for_profile(selected_profile)
                 
                 default_configs = {
-                    "local": {
-                        "name": "Local Model",
+                    "profile1": {
+                        "name": "AI Profile 1",
                         "base_url": "http://localhost:1234/v1",
-                        "api_key": "${LOCAL_API_KEY}",  # Use env var reference
-                        "model_name": "llava:7b",
+                        "api_key": "${VLM_API_KEY_1}",
+                        "model_name": "your-model-name",
                         "max_tokens": 1500,
                         "temperature": 0.1
                     },
-                    "online1": {
-                        "name": "Google Gemini",
-                        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-                        "api_key": "${GEMINI_API_KEY}",  # Use env var reference
-                        "model_name": "gemini-2.5-flash-lite-preview-09-2025",
+                    "profile2": {
+                        "name": "AI Profile 2",
+                        "base_url": "http://localhost:1234/v1",
+                        "api_key": "${VLM_API_KEY_2}",
+                        "model_name": "your-model-name",
                         "max_tokens": 1500,
                         "temperature": 0.1
                     },
-                    "online2": {
-                        "name": "OpenAI Compatible API",
+                    "profile3": {
+                        "name": "AI Profile 3",
                         "base_url": "http://localhost:1234/v1",
-                        "api_key": "${OPENAI_API_KEY}",  # Use env var reference
-                        "model_name": "gpt-4-vision-preview",
+                        "api_key": "${VLM_API_KEY_3}",
+                        "model_name": "your-model-name",
                         "max_tokens": 1500,
                         "temperature": 0.1
                     }
