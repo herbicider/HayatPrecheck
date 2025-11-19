@@ -5,7 +5,7 @@
     "local": {
       "name": "Local Model",
       "base_url": "http://10.147.17.98:1234/v1",
-      "api_key": "",
+      "api_key": "${VLM_API_KEY_1}",
       "_note": "API key references .env file - DO NOT hardcode keys here",
       "model_name": "",
       "max_tokens": 1500,
@@ -14,7 +14,7 @@
     "online1": {
       "name": "Google Gemini",
       "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-      "api_key": "${GEMINI_API_KEY}",
+      "api_key": "${VLM_API_KEY_2}",
       "model_name": "gemini-2.5-flash-lite-preview-09-2025",
       "max_tokens": 10000,
       "temperature": 0.0
@@ -22,7 +22,7 @@
     "online2": {
       "name": "OpenAI Compatible API",
       "base_url": "http://localhost:1234/v1",
-      "api_key": "",
+      "api_key": "${VLM_API_KEY_3}",
       "_note": "API key references .env file - DO NOT hardcode keys here",
       "model_name": "gpt-4-vision-preview",
       "max_tokens": 1500,

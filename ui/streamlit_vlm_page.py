@@ -21,7 +21,9 @@ def substitute_env_vars(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     Supports ${VAR_NAME} syntax.
     """
     # Load environment variables from .env file
-    load_dotenv()
+    # Force reload to ensure we get the latest values from the file
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+    load_dotenv(dotenv_path=env_path, override=True)
     
     def substitute_string(value: str) -> str:
         """Substitute environment variables in a string"""
@@ -45,32 +47,33 @@ def substitute_env_vars(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     return substitute_recursive(config_dict)
 
 def launch_vlm_gui():
-    """Launch the VLM Configuration GUI"""
+    """Launch the VLM Configuration GUI (via settings_gui.py in VLM mode)"""
     try:
-        # Launch the VLM GUI as a separate process
+        # Launch the Settings GUI in VLM mode
         # Get the directory where this script is located (ui folder)
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        vlm_gui_path = os.path.join(script_dir, "vlm_gui.py")
+        settings_gui_path = os.path.join(script_dir, "settings_gui.py")
         
-        if not os.path.exists(vlm_gui_path):
-            st.error(f"❌ VLM GUI file not found: {vlm_gui_path}")
+        if not os.path.exists(settings_gui_path):
+            st.error(f"❌ Settings GUI file not found: {settings_gui_path}")
             return
         
-        # Launch the GUI in a separate process
+        # Launch the GUI in a separate process with --mode vlm
+        cmd = [sys.executable, settings_gui_path, "--mode", "vlm"]
+        
         if sys.platform.startswith('win'):
             # Windows
-            subprocess.Popen([sys.executable, vlm_gui_path], 
-                           creationflags=subprocess.CREATE_NEW_CONSOLE)
+            subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
         else:
             # macOS/Linux
-            subprocess.Popen([sys.executable, vlm_gui_path])
+            subprocess.Popen(cmd)
         
         st.success("🚀 VLM Configuration GUI launched!")
         st.info("📋 A new window should open with the coordinate selection interface")
         
     except Exception as e:
         st.error(f"❌ Failed to launch VLM GUI: {e}")
-        st.info("💡 Try running manually: python vlm_gui.py")
+        st.info("💡 Try running manually: python ui/settings_gui.py --mode vlm")
 
 def vlm_settings_page(main_config: Dict[str, Any]):
     """VLM Settings and Configuration Page"""
@@ -251,12 +254,21 @@ def get_env_var_name_for_profile(profile_name: str) -> str:
     """
     # Map profiles to their generic environment variable names
     env_var_mapping = {
+        'local': 'VLM_API_KEY_1',
+        'online1': 'VLM_API_KEY_2',
+        'online2': 'VLM_API_KEY_3',
         'profile1': 'VLM_API_KEY_1',
         'profile2': 'VLM_API_KEY_2',
         'profile3': 'VLM_API_KEY_3'
     }
     
-    return env_var_mapping.get(profile_name, 'VLM_API_KEY_1')
+    # Default to a constructed name if not found to ensure uniqueness
+    if profile_name not in env_var_mapping:
+        # Clean the profile name to be a valid env var suffix
+        clean_name = re.sub(r'[^A-Z0-9]', '_', profile_name.upper())
+        return f"VLM_API_KEY_{clean_name}"
+    
+    return env_var_mapping[profile_name]
 
 def show_prompt_customization(vlm_config: Dict[str, Any], config_file: str):
     """Show VLM prompt customization for one-shot mode"""
@@ -666,11 +678,12 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
             if not os.path.exists(gui_script):
                 st.error("❌ settings_gui.py not found in the UI folder")
             else:
+                cmd = [sys.executable, gui_script, "--mode", "vlm"]
                 if sys.platform.startswith('win'):
-                    subprocess.Popen([sys.executable, gui_script], creationflags=subprocess.CREATE_NEW_CONSOLE)
+                    subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
                 else:
-                    subprocess.Popen([sys.executable, gui_script])
-                st.success("✅ Settings GUI launched! Check for a new window.")
+                    subprocess.Popen(cmd)
+                st.success("✅ Settings GUI launched in VLM mode! Check for a new window.")
         except Exception as e:
             st.error(f"❌ Failed to launch Settings GUI: {e}")
 

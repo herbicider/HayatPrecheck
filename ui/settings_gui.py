@@ -39,6 +39,8 @@ from PIL import Image, ImageTk
 import json
 import os
 import time
+import sys
+import argparse
 import shutil
 from typing import Dict, Any, Optional, Tuple
 
@@ -48,6 +50,12 @@ class SettingsGUI:
         self.root.title("Settings")
         self.root.geometry("1700x900")
         self.root.minsize(1500, 800)
+        
+        # Parse command line arguments
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--mode", choices=["ocr", "vlm"], default="ocr", help="Initial configuration mode")
+        args, _ = parser.parse_known_args()
+        initial_mode = args.mode
         
         # Initialize all variables first
         self.config: Optional[Dict[str, Any]] = None
@@ -82,7 +90,7 @@ class SettingsGUI:
         self.optional_field_vars = {}
         
         # Initialize UI variables
-        self.mode_var: tk.StringVar = tk.StringVar(value="ocr")  # 'ocr' or 'vlm'
+        self.mode_var: tk.StringVar = tk.StringVar(value=initial_mode)  # 'ocr' or 'vlm'
         self.field_var: tk.StringVar = tk.StringVar()
         self.region_var: tk.StringVar = tk.StringVar(value="entered")
         self.verification_method_var: tk.StringVar = tk.StringVar()
@@ -1210,6 +1218,22 @@ class SettingsGUI:
         if self.canvas:
             canvas_x = self.canvas.canvasx(event.x)
             canvas_y = self.canvas.canvasy(event.y)
+            
+            # Remove existing rectangle for the current selection to avoid visual clutter
+            target_key = None
+            if self.mode_var.get() == "vlm":
+                target_key = "vlm_comparison"
+            elif self.current_field == "trigger":
+                target_key = "trigger"
+            elif self.current_field == "rx_number":
+                target_key = "rx_number"
+            elif self.current_field and self.current_region_type:
+                target_key = f"{self.current_field}_{self.current_region_type}"
+            
+            if target_key and target_key in self.rectangles:
+                if self.rectangles[target_key]:
+                    self.canvas.delete(self.rectangles[target_key])
+                del self.rectangles[target_key]
         else:
             canvas_x = event.x
             canvas_y = event.y
@@ -1546,7 +1570,7 @@ class SettingsGUI:
             return
         
         # Draw trigger region
-        if "trigger" in self.config["regions"]:
+        if self.config and "regions" in self.config and "trigger" in self.config["regions"]:
             coords = self.config["regions"]["trigger"]
             if len(coords) >= 4:
                 # Convert from screenshot coordinates to display coordinates
@@ -1569,7 +1593,7 @@ class SettingsGUI:
                     used_label_positions.append((label_x, label_y))
         
         # Draw rx_number region
-        if "rx_number" in self.config["regions"]:
+        if self.config and "regions" in self.config and "rx_number" in self.config["regions"]:
             coords = self.config["regions"]["rx_number"]
             if len(coords) >= 4:
                 # Convert from screenshot coordinates to display coordinates
@@ -1594,7 +1618,7 @@ class SettingsGUI:
         # Draw all field rectangles
         colors = {"entered": "blue", "source": "green"}
         
-        if "fields" in self.config["regions"]:
+        if self.config and "regions" in self.config and "fields" in self.config["regions"]:
             for field_name, field_config in self.config["regions"]["fields"].items():
                 for region_type in ["entered", "source"]:
                     if region_type in field_config and len(field_config[region_type]) >= 4:
