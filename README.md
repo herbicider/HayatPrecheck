@@ -425,8 +425,7 @@ After run the launch.bat
 │
 └── 📁 ui/                  # User interfaces
     ├── streamlit_app.py    # Web dashboard
-    ├── settings_gui.py     # Coordinate setup
-    └── vlm_gui.py          # VLM configuration
+    └── settings_gui.py     # Unified coordinate setup (OCR & VLM)
 ```
 
 ---

@@ -36,12 +36,18 @@ class VLM_Verifier:
         self.logger = logging.getLogger(__name__)
         
         # Main VLM client (for vision/OCR tasks)
+        api_key = self.config.get("api_key", "ollama")
         self.client = openai.OpenAI(
             base_url=self.config.get("base_url", "http://localhost:11434/v1"),
-            api_key=self.config.get("api_key", "ollama"),
+            api_key=api_key,
         )
         
-        self.logger.debug(f"VLM: Using profile '{current_profile}' - {self.config.get('name', 'Unknown')} - Model: {self.config.get('model_name', 'Unknown')}")
+        # Log masked API key for debugging
+        masked_key = f"{api_key[:4]}...{api_key[-4:]}" if api_key and len(api_key) > 8 else "Not set/Short"
+        self.logger.debug(f"VLM: Using profile '{current_profile}' - {self.config.get('name', 'Unknown')}")
+        self.logger.debug(f"VLM: Model: {self.config.get('model_name', 'Unknown')}")
+        self.logger.debug(f"VLM: Base URL: {self.config.get('base_url', 'Unknown')}")
+        self.logger.debug(f"VLM: API Key: {masked_key}")
 
     def capture_region_screenshot(self, region_name: str) -> Optional[Image.Image]:
         """Capture screenshot of a specific region"""
