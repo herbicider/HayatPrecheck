@@ -96,3 +96,6 @@ config_backups/
 
 tools/
 
+/vlm_debug_images/
+
+

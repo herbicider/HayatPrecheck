@@ -530,7 +530,7 @@ def show_model_settings(vlm_config: Dict[str, Any], config_file: str):
             max_tokens = st.number_input(
                 "Max Tokens:",
                 min_value=100,
-                max_value=4000,
+                max_value=10000,
                 value=current_profile_config.get("max_tokens", 1500),
                 help="Maximum tokens in the response",
                 key=f"{selected_profile}_tokens"
