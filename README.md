@@ -392,7 +392,8 @@ After run the launch.bat
 - Automatically sends configured key when all fields match
 - Two automation actions: preset key press or custom AutoHotkey v2 script
 - Configurable delay and key selection (F1-F12, Enter, etc.)
-- Custom AutoHotkey v2 code is editable in both settings UIs and runs only on Windows
+- Custom AHK-style code is editable in both settings UIs and parsed internally by the app
+- Supported custom commands: `Send`, `SendText`, and `Sleep`
 - Safety confirmation period
 
 ### Configuration Files
