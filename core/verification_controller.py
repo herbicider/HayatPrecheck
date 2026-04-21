@@ -3,15 +3,12 @@ import asyncio
 import functools
 import json
 import logging
-import shutil
 import re
-import subprocess
 import sys
 import os
-import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pyautogui
 import tkinter as tk
@@ -109,6 +106,46 @@ def substitute_env_vars(config_dict: Dict[str, Any]) -> Dict[str, Any]:
 
 class VerificationController:
     """Manages the main async application loop, screen monitoring, and UI."""
+
+    AHK_MODIFIER_MAP = {
+        "^": "ctrl",
+        "!": "alt",
+        "+": "shift",
+        "#": "win",
+    }
+    AHK_KEY_MAP = {
+        "capslock": "capslock",
+        "ctrl": "ctrl",
+        "del": "delete",
+        "delete": "delete",
+        "down": "down",
+        "end": "end",
+        "enter": "enter",
+        "esc": "esc",
+        "escape": "esc",
+        "f1": "f1",
+        "f2": "f2",
+        "f3": "f3",
+        "f4": "f4",
+        "f5": "f5",
+        "f6": "f6",
+        "f7": "f7",
+        "f8": "f8",
+        "f9": "f9",
+        "f10": "f10",
+        "f11": "f11",
+        "f12": "f12",
+        "home": "home",
+        "ins": "insert",
+        "insert": "insert",
+        "left": "left",
+        "pgdn": "pagedown",
+        "pgup": "pageup",
+        "right": "right",
+        "space": "space",
+        "tab": "tab",
+        "up": "up",
+    }
 
     def __init__(self, config: Dict[str, Any], loop: asyncio.AbstractEventLoop):
         self.config = config
@@ -397,7 +434,7 @@ class VerificationController:
         await asyncio.sleep(delay_seconds)
 
         if automation_mode == "autohotkey_v2":
-            await self._run_autohotkey_v2_automation(automation_config)
+            await self._run_ahk_style_automation(automation_config)
             return
 
         key_to_send = automation_config.get("key_on_all_match", "f12")
@@ -416,116 +453,123 @@ class VerificationController:
         logging.warning(f"Unknown automation mode '{mode}', falling back to preset_key")
         return "preset_key"
 
-    def _find_autohotkey_v2_executable(self, configured_path: str) -> str:
-        """Resolve the AutoHotkey v2 executable path."""
-        candidate_path = str(configured_path or "").strip()
-        if candidate_path:
-            if os.path.isfile(candidate_path):
-                return candidate_path
-            raise FileNotFoundError(f"AutoHotkey executable not found: {candidate_path}")
-
-        which_candidates = ["AutoHotkey64.exe", "AutoHotkey.exe", "autohotkey"]
-        for candidate in which_candidates:
-            resolved_path = shutil.which(candidate)
-            if resolved_path:
-                return resolved_path
-
-        program_files_roots = [
-            os.environ.get("ProgramFiles"),
-            os.environ.get("ProgramFiles(x86)"),
-            os.environ.get("LocalAppData"),
-        ]
-        common_relative_paths = [
-            os.path.join("AutoHotkey", "v2", "AutoHotkey64.exe"),
-            os.path.join("AutoHotkey", "v2", "AutoHotkey.exe"),
-            os.path.join("Programs", "AutoHotkey", "v2", "AutoHotkey64.exe"),
-            os.path.join("Programs", "AutoHotkey", "v2", "AutoHotkey.exe"),
-        ]
-
-        for root in program_files_roots:
-            if not root:
+    def _tokenize_ahk_send_sequence(self, sequence: str) -> List[Tuple[str, str]]:
+        """Tokenize a small AutoHotkey-style send sequence."""
+        tokens: List[Tuple[str, str]] = []
+        index = 0
+        while index < len(sequence):
+            current_char = sequence[index]
+            if current_char == "{":
+                closing_index = sequence.find("}", index + 1)
+                if closing_index == -1:
+                    raise ValueError(f"Unclosed key token in send sequence: {sequence}")
+                tokens.append(("key", sequence[index + 1:closing_index]))
+                index = closing_index + 1
                 continue
-            for relative_path in common_relative_paths:
-                resolved_path = os.path.join(root, relative_path)
-                if os.path.isfile(resolved_path):
-                    return resolved_path
+            tokens.append(("text", current_char))
+            index += 1
+        return tokens
 
-        raise FileNotFoundError(
-            "AutoHotkey v2 executable not found. Configure automation.autohotkey_executable_path or install AutoHotkey v2."
-        )
+    def _parse_ahk_command_arguments(self, raw_value: str) -> str:
+        """Extract the argument payload for supported one-line AHK-style commands."""
+        argument_text = raw_value.strip()
+        if not argument_text:
+            return ""
+        if argument_text.startswith('"') and argument_text.endswith('"') and len(argument_text) >= 2:
+            return argument_text[1:-1]
+        return argument_text
 
-    def _execute_autohotkey_v2_script(self, automation_config: Dict[str, Any]) -> bool:
-        """Run the configured AutoHotkey v2 script once using a temporary file."""
-        if not sys.platform.startswith("win"):
-            logging.warning("AutoHotkey v2 automation is only available on Windows; skipping custom automation")
-            return False
+    def _normalize_ahk_key(self, raw_key: str) -> str:
+        """Map a small AHK-style key token to a pyautogui key."""
+        normalized_key = raw_key.strip().lower()
+        if normalized_key in self.AHK_KEY_MAP:
+            return self.AHK_KEY_MAP[normalized_key]
+        if len(normalized_key) == 1:
+            return normalized_key
+        raise ValueError(f"Unsupported AHK key token: {raw_key}")
 
+    def _execute_ahk_send(self, sequence: str):
+        """Interpret a subset of AHK Send syntax and replay it with pyautogui."""
+        modifier_stack: List[str] = []
+        index = 0
+
+        while index < len(sequence):
+            current_char = sequence[index]
+            if current_char in self.AHK_MODIFIER_MAP:
+                modifier_stack.append(self.AHK_MODIFIER_MAP[current_char])
+                index += 1
+                continue
+
+            if current_char == "{":
+                closing_index = sequence.find("}", index + 1)
+                if closing_index == -1:
+                    raise ValueError(f"Unclosed key token in send sequence: {sequence}")
+                key_token = sequence[index + 1:closing_index]
+                normalized_key = self._normalize_ahk_key(key_token)
+                if modifier_stack:
+                    pyautogui.hotkey(*modifier_stack, normalized_key)
+                    modifier_stack = []
+                else:
+                    pyautogui.press(normalized_key)
+                index = closing_index + 1
+                continue
+
+            if modifier_stack:
+                pyautogui.hotkey(*modifier_stack, current_char.lower())
+                modifier_stack = []
+            else:
+                pyautogui.write(current_char)
+            index += 1
+
+        if modifier_stack:
+            raise ValueError("Dangling modifier in AHK send sequence")
+
+    def _execute_ahk_style_script(self, automation_config: Dict[str, Any]) -> bool:
+        """Interpret a small AHK-style script internally without external AutoHotkey."""
         script_code = str(automation_config.get("autohotkey_v2_code", "")).strip()
         if not script_code:
-            logging.error("AutoHotkey v2 automation is enabled but no script code is configured")
+            logging.error("AHK-style automation is enabled but no script code is configured")
             return False
 
-        executable_path = self._find_autohotkey_v2_executable(
-            str(automation_config.get("autohotkey_executable_path", ""))
-        )
-        timeout_seconds = float(automation_config.get("autohotkey_timeout_seconds", 5.0))
-
-        temp_script_path = ""
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                suffix=".ahk",
-                encoding="utf-8",
-                delete=False,
-            ) as temp_script_file:
-                temp_script_file.write(script_code)
-                temp_script_path = temp_script_file.name
+            for line_number, raw_line in enumerate(script_code.splitlines(), start=1):
+                stripped_line = raw_line.strip()
+                if not stripped_line or stripped_line.startswith(";"):
+                    continue
+                if stripped_line.startswith("#"):
+                    continue
 
-            completed_process = subprocess.run(
-                [executable_path, temp_script_path],
-                capture_output=True,
-                check=False,
-                text=True,
-                timeout=timeout_seconds,
-            )
+                command_match = re.match(r"^(SendText|Send|Sleep)\s+(.*)$", stripped_line, re.IGNORECASE)
+                if not command_match:
+                    raise ValueError(f"Unsupported AHK-style command on line {line_number}: {stripped_line}")
 
-            if completed_process.returncode != 0:
-                stderr_output = (completed_process.stderr or "").strip()
-                stdout_output = (completed_process.stdout or "").strip()
-                logging.error(
-                    "AutoHotkey v2 automation failed with exit code %s. stdout=%s stderr=%s",
-                    completed_process.returncode,
-                    stdout_output,
-                    stderr_output,
-                )
-                return False
+                command_name = command_match.group(1).lower()
+                command_args = self._parse_ahk_command_arguments(command_match.group(2))
 
-            logging.info("SUCCESS: AutoHotkey v2 automation script executed successfully")
+                if command_name == "sleep":
+                    time.sleep(float(command_args) / 1000.0)
+                elif command_name == "sendtext":
+                    pyautogui.write(command_args)
+                else:
+                    self._execute_ahk_send(command_args)
+
+            logging.info("SUCCESS: Parsed AHK-style automation script executed successfully")
             return True
-        except subprocess.TimeoutExpired:
-            logging.error("AutoHotkey v2 automation timed out after %ss", timeout_seconds)
-            return False
         except Exception as e:
-            logging.error(f"Error executing AutoHotkey v2 automation: {e}")
+            logging.error(f"Error executing parsed AHK-style automation: {e}")
             return False
-        finally:
-            if temp_script_path and os.path.exists(temp_script_path):
-                try:
-                    os.remove(temp_script_path)
-                except OSError as cleanup_error:
-                    logging.warning(f"Failed to remove temporary AutoHotkey script '{temp_script_path}': {cleanup_error}")
 
-    async def _run_autohotkey_v2_automation(self, automation_config: Dict[str, Any]):
-        """Execute custom AutoHotkey v2 automation without blocking the event loop."""
+    async def _run_ahk_style_automation(self, automation_config: Dict[str, Any]):
+        """Execute parsed AHK-style automation without blocking the event loop."""
         try:
             success = await asyncio.to_thread(
-                self._execute_autohotkey_v2_script,
+                self._execute_ahk_style_script,
                 dict(automation_config),
             )
             if not success:
-                logging.error("AutoHotkey v2 automation did not complete successfully")
+                logging.error("Parsed AHK-style automation did not complete successfully")
         except Exception as e:
-            logging.error(f"Error scheduling AutoHotkey v2 automation: {e}")
+            logging.error(f"Error scheduling parsed AHK-style automation: {e}")
 
     def _is_partial_rx_read(self, rx_number: str, reference_rx: str) -> bool:
         """Check if rx_number is likely a partial read of reference_rx due to UI shifts."""

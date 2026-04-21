@@ -781,35 +781,9 @@ class SettingsGUI:
         
         self.settings_vars["auto_delay"] = delay_var
 
-        ahk_path_frame = ttk.Frame(auto_frame)
-        ahk_path_frame.pack(fill=tk.X, pady=5)
-
-        ttk.Label(ahk_path_frame, text="AHK v2 exe path:", width=16).pack(side=tk.LEFT)
-        ahk_path_var = tk.StringVar(
-            value=self.config["automation"].get("autohotkey_executable_path", "")
-        )
-        ahk_path_entry = ttk.Entry(ahk_path_frame, textvariable=ahk_path_var, width=50)
-        ahk_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
-        ahk_path_entry.bind('<FocusOut>', lambda e: self.update_automation("autohotkey_executable_path", ahk_path_var.get()))
-        ahk_path_entry.bind('<Return>', lambda e: self.update_automation("autohotkey_executable_path", ahk_path_var.get()))
-        self.settings_vars["autohotkey_executable_path"] = ahk_path_var
-
-        ahk_timeout_frame = ttk.Frame(auto_frame)
-        ahk_timeout_frame.pack(fill=tk.X, pady=5)
-
-        ttk.Label(ahk_timeout_frame, text="AHK timeout (s):", width=16).pack(side=tk.LEFT)
-        ahk_timeout_var = tk.StringVar(
-            value=str(self.config["automation"].get("autohotkey_timeout_seconds", 5.0))
-        )
-        ahk_timeout_entry = ttk.Entry(ahk_timeout_frame, textvariable=ahk_timeout_var, width=8)
-        ahk_timeout_entry.pack(side=tk.LEFT, padx=(5, 0))
-        ahk_timeout_entry.bind('<FocusOut>', lambda e: self.update_automation("autohotkey_timeout_seconds", ahk_timeout_var.get()))
-        ahk_timeout_entry.bind('<Return>', lambda e: self.update_automation("autohotkey_timeout_seconds", ahk_timeout_var.get()))
-        self.settings_vars["autohotkey_timeout_seconds"] = ahk_timeout_var
-
         ttk.Label(
             auto_frame,
-            text="Custom AutoHotkey v2 code (Windows only):",
+            text="Custom AHK-style code:",
         ).pack(anchor=tk.W, pady=(5, 2))
         ahk_code_text = scrolledtext.ScrolledText(auto_frame, height=10, wrap=tk.WORD)
         ahk_code_text.pack(fill=tk.X, expand=True)
@@ -822,7 +796,7 @@ class SettingsGUI:
 
         ahk_help_label = ttk.Label(
             auto_frame,
-            text="Preset key uses the built-in key sender. Custom AutoHotkey v2 writes this code to a temporary .ahk file and runs it on Windows.",
+            text="Preset key uses the built-in key sender. Custom mode parses supported AHK-style commands directly in the app: Send, SendText, and Sleep.",
             wraplength=420,
             justify=tk.LEFT,
         )
@@ -831,8 +805,6 @@ class SettingsGUI:
         self.automation_widgets = {
             "key_combo": key_combo,
             "delay_entry": delay_entry,
-            "ahk_path_entry": ahk_path_entry,
-            "ahk_timeout_entry": ahk_timeout_entry,
             "ahk_code_text": ahk_code_text,
             "ahk_help_label": ahk_help_label,
         }
@@ -926,21 +898,6 @@ class SettingsGUI:
                 # Reset to previous value
                 current_delay = self.config.get("automation", {}).get("key_delay_seconds", 0.5)
                 self.settings_vars["auto_delay"].set(str(current_delay))
-        elif setting_type == "autohotkey_executable_path":
-            self.config["automation"]["autohotkey_executable_path"] = str(value).strip()
-            self.update_status("AutoHotkey executable path updated")
-        elif setting_type == "autohotkey_timeout_seconds":
-            try:
-                timeout_value = float(value)
-                if timeout_value > 0:
-                    self.config["automation"]["autohotkey_timeout_seconds"] = timeout_value
-                    self.update_status(f"AutoHotkey timeout set to {timeout_value}s")
-                else:
-                    raise ValueError("Timeout must be positive")
-            except ValueError:
-                messagebox.showerror("Invalid Value", "AutoHotkey timeout must be a positive number")
-                current_timeout = self.config.get("automation", {}).get("autohotkey_timeout_seconds", 5.0)
-                self.settings_vars["autohotkey_timeout_seconds"].set(str(current_timeout))
         elif setting_type == "autohotkey_v2_code":
             script_value = str(value).rstrip()
             if not script_value:
@@ -961,11 +918,6 @@ class SettingsGUI:
             key_combo.configure(state=key_state)
 
         ahk_controls_state = "normal" if mode == "autohotkey_v2" else "disabled"
-        for widget_name in ["ahk_path_entry", "ahk_timeout_entry"]:
-            widget = widgets.get(widget_name)
-            if widget:
-                widget.configure(state=ahk_controls_state)
-
         ahk_code_text = widgets.get("ahk_code_text")
         if ahk_code_text:
             ahk_code_text.configure(state=ahk_controls_state)
