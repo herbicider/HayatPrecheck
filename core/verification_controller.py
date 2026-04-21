@@ -3,9 +3,12 @@ import asyncio
 import functools
 import json
 import logging
+import shutil
 import re
+import subprocess
 import sys
 import os
+import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor
 from typing import Any, Dict, Optional, Tuple
@@ -387,20 +390,142 @@ class VerificationController:
         if not automation_config.get("send_key_on_all_match"):
             return
 
-        key_to_send = automation_config.get("key_on_all_match", "f12")
         delay_seconds = automation_config.get("key_delay_seconds", 0.5)
+        automation_mode = self._get_automation_mode(automation_config)
 
-        logging.info(
-            f"SUCCESS: All fields matched! Sending '{key_to_send}' key press in {delay_seconds}s..."
-        )
+        logging.info(f"SUCCESS: All fields matched! Running automation mode '{automation_mode}' in {delay_seconds}s...")
         await asyncio.sleep(delay_seconds)
 
+        if automation_mode == "autohotkey_v2":
+            await self._run_autohotkey_v2_automation(automation_config)
+            return
+
+        key_to_send = automation_config.get("key_on_all_match", "f12")
         try:
             # pyautogui is blocking, but short. For true async, this would also go in an executor.
-            pyautogui.press(key_to_send.lower())
+            pyautogui.press(str(key_to_send).lower())
             logging.info(f"SUCCESS: Sent '{key_to_send}' key press successfully")
         except Exception as e:
             logging.error(f"Error sending key press: {e}")
+
+    def _get_automation_mode(self, automation_config: Dict[str, Any]) -> str:
+        """Resolve the configured automation mode with backward-compatible fallback."""
+        mode = str(automation_config.get("mode", "preset_key")).strip().lower()
+        if mode in {"preset_key", "autohotkey_v2"}:
+            return mode
+        logging.warning(f"Unknown automation mode '{mode}', falling back to preset_key")
+        return "preset_key"
+
+    def _find_autohotkey_v2_executable(self, configured_path: str) -> str:
+        """Resolve the AutoHotkey v2 executable path."""
+        candidate_path = str(configured_path or "").strip()
+        if candidate_path:
+            if os.path.isfile(candidate_path):
+                return candidate_path
+            raise FileNotFoundError(f"AutoHotkey executable not found: {candidate_path}")
+
+        which_candidates = ["AutoHotkey64.exe", "AutoHotkey.exe", "autohotkey"]
+        for candidate in which_candidates:
+            resolved_path = shutil.which(candidate)
+            if resolved_path:
+                return resolved_path
+
+        program_files_roots = [
+            os.environ.get("ProgramFiles"),
+            os.environ.get("ProgramFiles(x86)"),
+            os.environ.get("LocalAppData"),
+        ]
+        common_relative_paths = [
+            os.path.join("AutoHotkey", "v2", "AutoHotkey64.exe"),
+            os.path.join("AutoHotkey", "v2", "AutoHotkey.exe"),
+            os.path.join("Programs", "AutoHotkey", "v2", "AutoHotkey64.exe"),
+            os.path.join("Programs", "AutoHotkey", "v2", "AutoHotkey.exe"),
+        ]
+
+        for root in program_files_roots:
+            if not root:
+                continue
+            for relative_path in common_relative_paths:
+                resolved_path = os.path.join(root, relative_path)
+                if os.path.isfile(resolved_path):
+                    return resolved_path
+
+        raise FileNotFoundError(
+            "AutoHotkey v2 executable not found. Configure automation.autohotkey_executable_path or install AutoHotkey v2."
+        )
+
+    def _execute_autohotkey_v2_script(self, automation_config: Dict[str, Any]) -> bool:
+        """Run the configured AutoHotkey v2 script once using a temporary file."""
+        if not sys.platform.startswith("win"):
+            logging.warning("AutoHotkey v2 automation is only available on Windows; skipping custom automation")
+            return False
+
+        script_code = str(automation_config.get("autohotkey_v2_code", "")).strip()
+        if not script_code:
+            logging.error("AutoHotkey v2 automation is enabled but no script code is configured")
+            return False
+
+        executable_path = self._find_autohotkey_v2_executable(
+            str(automation_config.get("autohotkey_executable_path", ""))
+        )
+        timeout_seconds = float(automation_config.get("autohotkey_timeout_seconds", 5.0))
+
+        temp_script_path = ""
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".ahk",
+                encoding="utf-8",
+                delete=False,
+            ) as temp_script_file:
+                temp_script_file.write(script_code)
+                temp_script_path = temp_script_file.name
+
+            completed_process = subprocess.run(
+                [executable_path, temp_script_path],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=timeout_seconds,
+            )
+
+            if completed_process.returncode != 0:
+                stderr_output = (completed_process.stderr or "").strip()
+                stdout_output = (completed_process.stdout or "").strip()
+                logging.error(
+                    "AutoHotkey v2 automation failed with exit code %s. stdout=%s stderr=%s",
+                    completed_process.returncode,
+                    stdout_output,
+                    stderr_output,
+                )
+                return False
+
+            logging.info("SUCCESS: AutoHotkey v2 automation script executed successfully")
+            return True
+        except subprocess.TimeoutExpired:
+            logging.error("AutoHotkey v2 automation timed out after %ss", timeout_seconds)
+            return False
+        except Exception as e:
+            logging.error(f"Error executing AutoHotkey v2 automation: {e}")
+            return False
+        finally:
+            if temp_script_path and os.path.exists(temp_script_path):
+                try:
+                    os.remove(temp_script_path)
+                except OSError as cleanup_error:
+                    logging.warning(f"Failed to remove temporary AutoHotkey script '{temp_script_path}': {cleanup_error}")
+
+    async def _run_autohotkey_v2_automation(self, automation_config: Dict[str, Any]):
+        """Execute custom AutoHotkey v2 automation without blocking the event loop."""
+        try:
+            success = await asyncio.to_thread(
+                self._execute_autohotkey_v2_script,
+                dict(automation_config),
+            )
+            if not success:
+                logging.error("AutoHotkey v2 automation did not complete successfully")
+        except Exception as e:
+            logging.error(f"Error scheduling AutoHotkey v2 automation: {e}")
 
     def _is_partial_rx_read(self, rx_number: str, reference_rx: str) -> bool:
         """Check if rx_number is likely a partial read of reference_rx due to UI shifts."""
