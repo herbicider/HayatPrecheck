@@ -34,6 +34,7 @@ Version: 2.0
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+from tkinter import scrolledtext
 import pyautogui
 from PIL import Image, ImageTk
 import json
@@ -43,6 +44,12 @@ import sys
 import argparse
 import shutil
 from typing import Dict, Any, Optional, Tuple
+
+DEFAULT_AUTOHOTKEY_V2_TEMPLATE = (
+    "#Requires AutoHotkey v2.0\n"
+    "; Add your custom AutoHotkey v2 actions below.\n"
+    "Send \"{F12}\"\n"
+)
 
 class SettingsGUI:
     def __init__(self):
@@ -705,6 +712,29 @@ class SettingsGUI:
                                    command=lambda: self.update_automation("enabled", auto_enabled_var.get()))
         auto_check.pack(anchor=tk.W, pady=2)
         self.settings_vars["auto_enabled"] = auto_enabled_var
+
+        if "automation" not in self.config:
+            self.config["automation"] = {}
+
+        current_mode = self.config["automation"].get("mode", "preset_key")
+        if current_mode not in {"preset_key", "autohotkey_v2"}:
+            current_mode = "preset_key"
+
+        mode_frame = ttk.Frame(auto_frame)
+        mode_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(mode_frame, text="Automation action:", width=16).pack(side=tk.LEFT)
+        mode_var = tk.StringVar(value=current_mode)
+        mode_combo = ttk.Combobox(
+            mode_frame,
+            textvariable=mode_var,
+            width=24,
+            state="readonly",
+            values=["preset_key", "autohotkey_v2"],
+        )
+        mode_combo.pack(side=tk.LEFT, padx=(5, 0))
+        mode_combo.bind('<<ComboboxSelected>>', lambda e: self.update_automation("mode", mode_var.get()))
+        self.settings_vars["auto_mode"] = mode_var
         
         # Key selection and delay in one row
         controls_frame = ttk.Frame(auto_frame)
@@ -750,6 +780,63 @@ class SettingsGUI:
         delay_entry.bind('<Return>', lambda e: self.update_automation("delay", delay_var.get()))
         
         self.settings_vars["auto_delay"] = delay_var
+
+        ahk_path_frame = ttk.Frame(auto_frame)
+        ahk_path_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(ahk_path_frame, text="AHK v2 exe path:", width=16).pack(side=tk.LEFT)
+        ahk_path_var = tk.StringVar(
+            value=self.config["automation"].get("autohotkey_executable_path", "")
+        )
+        ahk_path_entry = ttk.Entry(ahk_path_frame, textvariable=ahk_path_var, width=50)
+        ahk_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        ahk_path_entry.bind('<FocusOut>', lambda e: self.update_automation("autohotkey_executable_path", ahk_path_var.get()))
+        ahk_path_entry.bind('<Return>', lambda e: self.update_automation("autohotkey_executable_path", ahk_path_var.get()))
+        self.settings_vars["autohotkey_executable_path"] = ahk_path_var
+
+        ahk_timeout_frame = ttk.Frame(auto_frame)
+        ahk_timeout_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(ahk_timeout_frame, text="AHK timeout (s):", width=16).pack(side=tk.LEFT)
+        ahk_timeout_var = tk.StringVar(
+            value=str(self.config["automation"].get("autohotkey_timeout_seconds", 5.0))
+        )
+        ahk_timeout_entry = ttk.Entry(ahk_timeout_frame, textvariable=ahk_timeout_var, width=8)
+        ahk_timeout_entry.pack(side=tk.LEFT, padx=(5, 0))
+        ahk_timeout_entry.bind('<FocusOut>', lambda e: self.update_automation("autohotkey_timeout_seconds", ahk_timeout_var.get()))
+        ahk_timeout_entry.bind('<Return>', lambda e: self.update_automation("autohotkey_timeout_seconds", ahk_timeout_var.get()))
+        self.settings_vars["autohotkey_timeout_seconds"] = ahk_timeout_var
+
+        ttk.Label(
+            auto_frame,
+            text="Custom AutoHotkey v2 code (Windows only):",
+        ).pack(anchor=tk.W, pady=(5, 2))
+        ahk_code_text = scrolledtext.ScrolledText(auto_frame, height=10, wrap=tk.WORD)
+        ahk_code_text.pack(fill=tk.X, expand=True)
+        ahk_code_text.insert(
+            "1.0",
+            self.config["automation"].get("autohotkey_v2_code", DEFAULT_AUTOHOTKEY_V2_TEMPLATE),
+        )
+        ahk_code_text.bind('<FocusOut>', lambda e: self.update_automation("autohotkey_v2_code", ahk_code_text.get("1.0", tk.END).rstrip()))
+        self.settings_vars["autohotkey_v2_code"] = ahk_code_text
+
+        ahk_help_label = ttk.Label(
+            auto_frame,
+            text="Preset key uses the built-in key sender. Custom AutoHotkey v2 writes this code to a temporary .ahk file and runs it on Windows.",
+            wraplength=420,
+            justify=tk.LEFT,
+        )
+        ahk_help_label.pack(anchor=tk.W, pady=(4, 0))
+
+        self.automation_widgets = {
+            "key_combo": key_combo,
+            "delay_entry": delay_entry,
+            "ahk_path_entry": ahk_path_entry,
+            "ahk_timeout_entry": ahk_timeout_entry,
+            "ahk_code_text": ahk_code_text,
+            "ahk_help_label": ahk_help_label,
+        }
+        self._update_automation_mode_controls(current_mode)
 
         # Optional Fields Settings
         ttk.Separator(settings_frame, orient='horizontal').pack(fill=tk.X, pady=10)
@@ -816,6 +903,13 @@ class SettingsGUI:
         if setting_type == "enabled":
             self.config["automation"]["send_key_on_all_match"] = bool(value)
             self.update_status(f"Automation {'enabled' if value else 'disabled'}")
+        elif setting_type == "mode":
+            mode_value = str(value)
+            if mode_value not in {"preset_key", "autohotkey_v2"}:
+                mode_value = "preset_key"
+            self.config["automation"]["mode"] = mode_value
+            self.update_status(f"Automation mode set to {mode_value}")
+            self._update_automation_mode_controls(mode_value)
         elif setting_type == "key":
             self.config["automation"]["key_on_all_match"] = str(value)
             self.update_status(f"Automation key set to {value}")
@@ -832,6 +926,49 @@ class SettingsGUI:
                 # Reset to previous value
                 current_delay = self.config.get("automation", {}).get("key_delay_seconds", 0.5)
                 self.settings_vars["auto_delay"].set(str(current_delay))
+        elif setting_type == "autohotkey_executable_path":
+            self.config["automation"]["autohotkey_executable_path"] = str(value).strip()
+            self.update_status("AutoHotkey executable path updated")
+        elif setting_type == "autohotkey_timeout_seconds":
+            try:
+                timeout_value = float(value)
+                if timeout_value > 0:
+                    self.config["automation"]["autohotkey_timeout_seconds"] = timeout_value
+                    self.update_status(f"AutoHotkey timeout set to {timeout_value}s")
+                else:
+                    raise ValueError("Timeout must be positive")
+            except ValueError:
+                messagebox.showerror("Invalid Value", "AutoHotkey timeout must be a positive number")
+                current_timeout = self.config.get("automation", {}).get("autohotkey_timeout_seconds", 5.0)
+                self.settings_vars["autohotkey_timeout_seconds"].set(str(current_timeout))
+        elif setting_type == "autohotkey_v2_code":
+            script_value = str(value).rstrip()
+            if not script_value:
+                script_value = DEFAULT_AUTOHOTKEY_V2_TEMPLATE
+                if hasattr(self, "settings_vars") and "autohotkey_v2_code" in self.settings_vars:
+                    text_widget = self.settings_vars["autohotkey_v2_code"]
+                    text_widget.delete("1.0", tk.END)
+                    text_widget.insert("1.0", script_value)
+            self.config["automation"]["autohotkey_v2_code"] = script_value
+            self.update_status("AutoHotkey v2 script updated")
+
+    def _update_automation_mode_controls(self, mode: str):
+        """Enable the controls for the selected automation mode."""
+        widgets = getattr(self, "automation_widgets", {})
+        key_state = "readonly" if mode == "preset_key" else "disabled"
+        key_combo = widgets.get("key_combo")
+        if key_combo:
+            key_combo.configure(state=key_state)
+
+        ahk_controls_state = "normal" if mode == "autohotkey_v2" else "disabled"
+        for widget_name in ["ahk_path_entry", "ahk_timeout_entry"]:
+            widget = widgets.get(widget_name)
+            if widget:
+                widget.configure(state=ahk_controls_state)
+
+        ahk_code_text = widgets.get("ahk_code_text")
+        if ahk_code_text:
+            ahk_code_text.configure(state=ahk_controls_state)
     
     def toggle_optional_field(self, field_key):
         """Handle toggling of an optional field."""

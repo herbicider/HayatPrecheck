@@ -6,7 +6,7 @@
     "trigger_check_interval_seconds": 1.0
   },
   "thresholds": {
-    "patient": 85,
+    "patient": 75,
     "prescriber": 85,
     "drug": 85,
     "sig": 80
@@ -157,8 +157,12 @@
   },
   "automation": {
     "send_key_on_all_match": true,
+    "mode": "preset_key",
     "key_on_all_match": "f12",
-    "key_delay_seconds": 0.5
+    "key_delay_seconds": 0.5,
+    "autohotkey_executable_path": "",
+    "autohotkey_timeout_seconds": 5.0,
+    "autohotkey_v2_code": "#Requires AutoHotkey v2.0\n; Add your custom AutoHotkey v2 actions below.\nSend \"{F12}\"\n"
   },
   "tesseract": {
     "config_options": "--psm 7",

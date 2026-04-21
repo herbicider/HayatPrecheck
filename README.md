@@ -390,7 +390,9 @@ After run the launch.bat
 
 **Autopilot Mode:**
 - Automatically sends configured key when all fields match
+- Two automation actions: preset key press or custom AutoHotkey v2 script
 - Configurable delay and key selection (F1-F12, Enter, etc.)
+- Custom AutoHotkey v2 code is editable in both settings UIs and runs only on Windows
 - Safety confirmation period
 
 ### Configuration Files

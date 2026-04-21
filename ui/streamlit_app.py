@@ -34,6 +34,12 @@ import asyncio
 from typing import Dict, Any, List, Optional, Tuple
 from ui.streamlit_vlm_page import vlm_settings_page
 
+DEFAULT_AUTOHOTKEY_V2_TEMPLATE = (
+    "#Requires AutoHotkey v2.0\n"
+    "; Add your custom AutoHotkey v2 actions below.\n"
+    "Send \"{F12}\"\n"
+)
+
 class SimplePharmacyApp:
     def __init__(self):
         # Initialize logging early for Streamlit runs (safe to call multiple times)
@@ -1036,8 +1042,18 @@ class SimplePharmacyApp:
         # Get current automation settings
         automation_config = self.config.get("automation", {})
         current_enabled = automation_config.get("send_key_on_all_match", False)
+        current_mode = automation_config.get("mode", "preset_key")
         current_key = automation_config.get("key_on_all_match", "f12")
         current_delay = automation_config.get("key_delay_seconds", 0.5)
+        current_ahk_path = automation_config.get("autohotkey_executable_path", "")
+        current_ahk_timeout = automation_config.get("autohotkey_timeout_seconds", 5.0)
+        current_ahk_code = automation_config.get(
+            "autohotkey_v2_code",
+            DEFAULT_AUTOHOTKEY_V2_TEMPLATE,
+        )
+
+        if current_mode not in {"preset_key", "autohotkey_v2"}:
+            current_mode = "preset_key"
         
         # Create automation controls
         col1, col2, col3 = st.columns([2, 1, 1])
@@ -1050,30 +1066,83 @@ class SimplePharmacyApp:
             )
         
         with col2:
+            mode_options = {
+                "Preset key press": "preset_key",
+                "Custom AutoHotkey v2": "autohotkey_v2",
+            }
+            mode_label = st.selectbox(
+                "Automation action:",
+                options=list(mode_options.keys()),
+                index=list(mode_options.values()).index(current_mode),
+                help="Choose between the built-in preset key press or a custom Windows AutoHotkey v2 script",
+            )
+            selected_mode = mode_options[mode_label]
+
+        with col3:
+            delay = st.number_input(
+                "Delay (seconds):",
+                min_value=0.1,
+                max_value=10.0,
+                value=current_delay,
+                step=0.1
+            )
+
+        if selected_mode == "preset_key":
             key_options = ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12", "enter", "tab", "space", "escape"]
             selected_key = st.selectbox(
                 "Key to send:",
                 options=key_options,
                 index=key_options.index(current_key) if current_key in key_options else key_options.index("f12")
             )
-        
-        with col3:
-            delay = st.number_input(
-                "Delay (seconds):",
-                min_value=0.1,
-                max_value=5.0,
-                value=current_delay,
-                step=0.1
+            ahk_path = current_ahk_path
+            ahk_timeout = current_ahk_timeout
+            ahk_code = current_ahk_code
+        else:
+            selected_key = current_key
+            st.caption("Custom AutoHotkey v2 automation is Windows-only. Paste a full v2 script below.")
+            ahk_path = st.text_input(
+                "AutoHotkey v2 executable path (optional):",
+                value=current_ahk_path,
+                help="Leave blank to auto-detect a common AutoHotkey v2 installation on Windows"
             )
-        
+            ahk_timeout = st.number_input(
+                "AutoHotkey timeout (seconds):",
+                min_value=1.0,
+                max_value=60.0,
+                value=float(current_ahk_timeout),
+                step=1.0,
+                help="Maximum time to wait for the custom AutoHotkey v2 script to finish"
+            )
+            ahk_code = st.text_area(
+                "Custom AutoHotkey v2 code:",
+                value=current_ahk_code,
+                height=220,
+                help="This code is written to a temporary .ahk file and executed when all fields match"
+            )
+
+            if os.name != "nt":
+                st.info("AutoHotkey v2 execution only works on Windows. You can still save the script from this UI.")
+
         # Update automation settings if changed
-        if enabled != current_enabled or selected_key != current_key or delay != current_delay:
+        if (
+            enabled != current_enabled
+            or selected_mode != current_mode
+            or selected_key != current_key
+            or delay != current_delay
+            or ahk_path != current_ahk_path
+            or float(ahk_timeout) != float(current_ahk_timeout)
+            or ahk_code != current_ahk_code
+        ):
             if "automation" not in self.config:
                 self.config["automation"] = {}
             
             self.config["automation"]["send_key_on_all_match"] = enabled
+            self.config["automation"]["mode"] = selected_mode
             self.config["automation"]["key_on_all_match"] = selected_key
             self.config["automation"]["key_delay_seconds"] = delay
+            self.config["automation"]["autohotkey_executable_path"] = ahk_path
+            self.config["automation"]["autohotkey_timeout_seconds"] = float(ahk_timeout)
+            self.config["automation"]["autohotkey_v2_code"] = ahk_code
             
             # Save the configuration
             try:
