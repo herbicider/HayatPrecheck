@@ -12,11 +12,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pyautogui
 from PIL import Image, ImageFilter
-from dotenv import load_dotenv
 
 from core.comparison_engine import ComparisonEngine
 from core.logger_config import log_rx_summary, setup_logging
 from core.ocr_provider import get_cached_ocr_provider
+from core.settings_manager import substitute_env_vars
 
 
 # This function is defined at the top level so it can be pickled and sent to other processes.
@@ -73,34 +73,6 @@ def perform_ocr_task(
         return field_identifier, ""
 
 
-def substitute_env_vars(config_dict: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Recursively substitute environment variables in configuration values.
-    Supports ${VAR_NAME} syntax.
-    """
-    # Load environment variables from .env file
-    load_dotenv()
-    
-    def substitute_string(value: str) -> str:
-        """Substitute environment variables in a string"""
-        def replace_var(match):
-            var_name = match.group(1)
-            return os.getenv(var_name, match.group(0))  # Return original if not found
-        
-        return re.sub(r'\$\{([^}]+)\}', replace_var, value)
-    
-    def substitute_recursive(obj):
-        """Recursively process the configuration object"""
-        if isinstance(obj, dict):
-            return {key: substitute_recursive(value) for key, value in obj.items()}
-        elif isinstance(obj, list):
-            return [substitute_recursive(item) for item in obj]
-        elif isinstance(obj, str):
-            return substitute_string(obj)
-        else:
-            return obj
-    
-    return substitute_recursive(config_dict)
 
 
 class VerificationController:

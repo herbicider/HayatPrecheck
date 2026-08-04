@@ -1,29 +1,43 @@
-pyautogui
-pillow
-rapidfuzz
-python-Levenshtein
+# Pharmacy Pre-Check dependencies
+#
+#   pip install -r requirements.txt
+#
+# Lower bounds rather than exact pins: the versions running on the pharmacy
+# workstation were never recorded, so pinning here would be a guess. Run
+# `pip freeze > requirements.lock` on that machine to capture what actually works.
 
-# OCR Providers (install based on preference)
-# Tesseract (lightweight, fast initialization)
-pytesseract
+# --- Core (always required) ---
+pyautogui>=0.9.54          # screen capture and key sending
+pillow>=10.0               # image handling
+numpy>=1.24                # OCR preprocessing
+opencv-python>=4.8         # OCR preprocessing (cv2)
+rapidfuzz>=3.0             # fuzzy text matching
+python-dotenv>=1.0         # reads API keys from .env
 
-# EasyOCR (good accuracy, moderate initialization)
-easyocr
+# tkinter is not on PyPI. It ships with the python.org Windows installer.
+# On macOS with Homebrew Python: brew install python-tk
 
-# PaddleOCR (comprehensive text detection, CPU optimized)
+# --- OCR engines ---
+# Tesseract is required even when using AI vision: trigger detection and
+# Rx-number extraction always go through it. The pip package is only a wrapper,
+# so the Tesseract binary must be installed separately and be on PATH.
+#   Windows: https://github.com/UB-Mannheim/tesseract/wiki
+pytesseract>=0.3.10
+
+# Optional, for the legacy offline OCR method. Large downloads, so install only
+# if you actually select one on the Legacy OCR tab.
+# easyocr>=1.7
 # paddlepaddle
 # paddleocr
 
-# Streamlit web app dependencies
-streamlit
-pandas
-plotly
+# --- AI vision (VLM) ---
+openai>=1.0                # OpenAI-compatible client, used for every VLM endpoint
 
-openai
-python-dotenv
+# --- Development ---
+# pytest>=8.0
 
-# GUI dependencies for coordinate_adjuster.py
-# Note: tkinter comes with most Python installations
-# If tkinter is not available, use: brew install python-tk
-opencv-python
-aiohttp
+# Removed in the single-window refactor:
+#   streamlit, pandas, plotly  - the browser UI is gone; pandas and plotly were
+#                                imported but never actually used
+#   aiohttp                    - never referenced anywhere in the codebase
+#   python-Levenshtein         - a fuzzywuzzy speedup; rapidfuzz has its own

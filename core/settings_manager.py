@@ -38,11 +38,18 @@ from dotenv import load_dotenv
 def substitute_env_vars(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     """
     Recursively substitute environment variables in configuration values.
-    Supports ${VAR_NAME} syntax.
+    Supports ${VAR_NAME} syntax. An unset variable is left as-is so callers can
+    tell "not configured" apart from "configured as empty".
+
+    This is the single implementation; there used to be three near-identical
+    copies (here, the verification controller, and the Streamlit VLM page).
     """
-    # Load environment variables from .env file
-    load_dotenv()
-    
+    # override=True so a key edited on the AI tab takes effect without a restart,
+    # and an explicit path so the .env next to the repo is found regardless of cwd.
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    load_dotenv(dotenv_path=env_path, override=True)
+
+
     def substitute_string(value: str) -> str:
         """Substitute environment variables in a string"""
         def replace_var(match):
@@ -67,13 +74,11 @@ def substitute_env_vars(config_dict: Dict[str, Any]) -> Dict[str, Any]:
 class SettingsManager:
     """Unified settings management for the pharmacy verification system"""
     
-    def __init__(self, config_file: str = "config/config.json", vlm_config_file: Optional[str] = None, llm_config_file: Optional[str] = None):
+    def __init__(self, config_file: str = "config/config.json", vlm_config_file: Optional[str] = None):
         self.config_file = config_file
         self.vlm_config_file = vlm_config_file or os.path.join("config", "vlm_config.json")
-        self.llm_config_file = llm_config_file or os.path.join("config", "llm_config.json")
         self.config: Optional[Dict[str, Any]] = None
         self.vlm_config: Optional[Dict[str, Any]] = None
-        self.llm_config: Optional[Dict[str, Any]] = None
         self.backup_dir = "config_backups"
         
         # Ensure backup directory exists
@@ -115,21 +120,6 @@ class SettingsManager:
             self.logger.error(f"Error loading VLM configuration: {e}")
             return False
 
-    def load_llm_config(self) -> bool:
-        """Load LLM configuration from llm_config.json file"""
-        try:
-            if os.path.exists(self.llm_config_file):
-                with open(self.llm_config_file, 'r', encoding='utf-8') as f:
-                    self.llm_config = json.load(f)
-                self.logger.debug(f"LLM configuration loaded from {self.llm_config_file}")
-                return True
-            else:
-                self.logger.error(f"LLM configuration file {self.llm_config_file} not found")
-                return False
-        except Exception as e:
-            self.logger.error(f"Error loading LLM configuration: {e}")
-            return False
-    
     def save_config(self, create_backup: bool = False) -> bool:
         """Save configuration to config.json file"""
         if not self.config:
@@ -168,25 +158,6 @@ class SettingsManager:
             self.logger.error(f"Error saving VLM configuration: {e}")
             return False
 
-    def save_llm_config(self, create_backup: bool = False) -> bool:
-        """Save LLM configuration to llm_config.json file"""
-        if not self.llm_config:
-            self.logger.error("No LLM configuration to save")
-            return False
-        
-        try:
-            # Create backup only if requested
-            if create_backup:
-                self.create_llm_backup()
-            
-            with open(self.llm_config_file, 'w', encoding='utf-8') as f:
-                json.dump(self.llm_config, f, indent=2)
-            self.logger.info(f"LLM configuration saved to {self.llm_config_file}")
-            return True
-        except Exception as e:
-            self.logger.error(f"Error saving LLM configuration: {e}")
-            return False
-    
     def create_backup(self) -> str:
         """Create a backup of the current configuration"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -225,25 +196,6 @@ class SettingsManager:
         
         return ""
 
-    def create_llm_backup(self) -> str:
-        """Create a backup of the current LLM configuration"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file = os.path.join(self.backup_dir, f"llm_config_backup_{timestamp}.json")
-        
-        try:
-            if os.path.exists(self.llm_config_file):
-                shutil.copy2(self.llm_config_file, backup_file)
-                self.logger.info(f"LLM backup created: {backup_file}")
-                
-                # Clean up old backups (keep last 10)
-                self.cleanup_old_llm_backups()
-                
-                return backup_file
-        except Exception as e:
-            self.logger.error(f"Error creating LLM backup: {e}")
-        
-        return ""
-    
     def cleanup_old_backups(self, keep_count: int = 10):
         """Remove old backup files, keeping only the most recent ones"""
         try:
@@ -284,26 +236,6 @@ class SettingsManager:
         except Exception as e:
             self.logger.error(f"Error cleaning up VLM backups: {e}")
 
-    def cleanup_old_llm_backups(self, keep_count: int = 10):
-        """Remove old LLM backup files, keeping only the most recent ones"""
-        try:
-            backup_files = []
-            for filename in os.listdir(self.backup_dir):
-                if filename.startswith("llm_config_backup_") and filename.endswith(".json"):
-                    filepath = os.path.join(self.backup_dir, filename)
-                    backup_files.append((filepath, os.path.getmtime(filepath)))
-            
-            # Sort by modification time (newest first)
-            backup_files.sort(key=lambda x: x[1], reverse=True)
-            
-            # Remove excess backups
-            for filepath, _ in backup_files[keep_count:]:
-                os.remove(filepath)
-                self.logger.info(f"Removed old LLM backup: {filepath}")
-                
-        except Exception as e:
-            self.logger.error(f"Error cleaning up LLM backups: {e}")
-    
     def restore_backup(self, backup_file: str) -> bool:
         """Restore configuration from a backup file"""
         try:
