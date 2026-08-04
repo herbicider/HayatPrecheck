@@ -349,39 +349,51 @@ ollama pull qwen3-vl:8b
 
 ## Usage
 
-### Web Dashboard (Primary Interface)
+### Daily Workflow
 
-```bash
-After run the launch.bat
+1. **Start the app:** Double-click `app.pyw` (or `start.bat` if `.pyw` is not associated)
+2. **Pick a method** on the **Run** tab:
+   - **AI Vision (VLM)** — Sends one screenshot to a vision model. Handles handwriting and odd layouts. Requires an AI endpoint configured on the **AI (VLM)** tab.
+   - **Legacy OCR + Fuzzy Match** — Reads each field with local OCR and compares text. Offline, CPU-only, no internet needed.
+3. **Press Start** and watch the live scores on the **Run** tab
+4. **Review results** — green means field matched, red means review needed
+5. **Optional:** Enable automation to press a key automatically when all fields match
 
+### Verification Methods
 
- If no new page pop up
-```
+**Mode 1: Traditional OCR + Fuzzy Matching (Recommended for Offline)**
+- Reads trigger region and Rx number with Tesseract OCR
+- Compares each field (patient, prescriber, drug, sig) using token-sort fuzzy matching
+- Completely offline, CPU-only, no AI required
+- Adjustable thresholds on the **Matching** tab
+- Engine selection on **Legacy OCR** tab: auto (best available), Tesseract, EasyOCR, or PaddleOCR
 
-**Dashboard Features:**
-- UI for easy setup
-
-### Verification Modes
-
-**Mode 1: Traditional OCR**
-
-**Mode 2: VLM Single-Shot** (Recommended)
-
+**Mode 2: AI Vision (VLM Single-Shot) (Recommended for Accuracy)**
+- Sends one full screenshot to a vision model endpoint
+- Model reads all fields in one pass and returns structured results
+- Handles handwriting, crooked text, and complex layouts better than OCR
+- Requires an OpenAI-compatible API endpoint (Ollama, LM Studio, Google Gemini, OpenAI, etc.)
+- Configure endpoint, model, and API key on the **AI (VLM)** tab
+- Test connection before running
 
 ### Automation Options
 
-**Manual Verification Mode:**
-- Visual feedback only (green/red field highlights)
-- Review verification results
-- No automatic actions
+**Manual Verification (Default):**
+- Scores appear on **Run** tab as color-coded rectangles on-screen
+- Review each field, press any key or click to close the overlay
+- No automatic actions; you stay in control
 
-**Autopilot Mode:**
-- Automatically sends configured key when all fields match
-- Two automation actions: preset key press or custom AutoHotkey v2 script
-- Configurable delay and key selection (F1-F12, Enter, etc.)
-- Custom AHK-style code is editable in both settings UIs and parsed internally by the app
-- Supported custom commands: `Send`, `SendText`, and `Sleep`
-- Safety confirmation period
+**Automation with Key Press (Optional):**
+- Enable **"Press a key automatically when every field matches"** on the **Run** tab
+- Choose a preset key (F1–F12, Enter, Tab, Space, Esc)
+- When all fields score above threshold: the key is pressed automatically after a configurable delay
+- Use this to auto-fill related forms or trigger the next step in pharmacy workflow
+
+**Custom Automation with AutoHotkey v2 (Advanced):**
+- Switch automation mode to "AutoHotkey v2 script" on the **Matching** tab
+- Write custom script with `Send`, `SendText`, and `Sleep` commands
+- Script runs when all fields match instead of pressing a preset key
+- Examples: type a command sequence, navigate menus, submit forms
 
 ### Configuration Files
 
