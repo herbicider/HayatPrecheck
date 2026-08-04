@@ -82,10 +82,15 @@ class VlmTab(ttk.Frame):
         self._on_dirty = on_dirty
         self.raw_config: Dict[str, Any] = {}
         self._testing = False
+        # Guards the var traces below. Populating the fields from config is not a
+        # user edit, so it must not mark the config dirty -- otherwise merely
+        # opening the app would show unsaved changes and prompt on close.
+        self._loading = True
 
         self._load()
         self._build()
         self._show_profile(self.raw_config.get("current_profile", ""))
+        self._loading = False
 
     # ------------------------------------------------------------------- state
 
@@ -161,7 +166,7 @@ class VlmTab(ttk.Frame):
                 ttk.Label(frame, text=hint, foreground="#555").grid(
                     row=index, column=2, sticky=tk.W, padx=(8, 0)
                 )
-            var.trace_add("write", lambda *_: self._on_dirty())
+            var.trace_add("write", lambda *_: self._mark_dirty())
             return var
 
         self.name_var = row(0, "Display name:")
@@ -224,6 +229,7 @@ class VlmTab(ttk.Frame):
         self.user_text.insert("1.0", prompts.get("oneshot_user_prompt", ""))
 
         for widget in (self.system_text, self.user_text):
+            widget.edit_modified(False)
             widget.bind("<<Modified>>", self._on_text_modified)
 
     def _build_actions(self):
@@ -250,17 +256,30 @@ class VlmTab(ttk.Frame):
             justify=tk.LEFT,
         ).pack(anchor=tk.W, pady=(8, 0))
 
+    def _mark_dirty(self):
+        if not self._loading:
+            self._on_dirty()
+
     def _on_text_modified(self, event):
         widget = event.widget
         if widget.edit_modified():
             widget.edit_modified(False)
-            self._on_dirty()
+            self._mark_dirty()
 
     # ----------------------------------------------------------------- profile
 
     def _show_profile(self, name: str):
         profile = self._profiles.get(name, {})
         self._current = name
+
+        was_loading = self._loading
+        self._loading = True
+        try:
+            self._populate(name, profile)
+        finally:
+            self._loading = was_loading
+
+    def _populate(self, name: str, profile: Dict[str, Any]):
 
         self.profile_var.set(name)
         self.name_var.set(profile.get("name", ""))
@@ -380,6 +399,10 @@ class VlmTab(ttk.Frame):
         )
 
     def reload_from_config(self):
-        self._load()
-        self.profile_combo.config(values=list(self._profiles.keys()))
-        self._show_profile(self.raw_config.get("current_profile", ""))
+        self._loading = True
+        try:
+            self._load()
+            self.profile_combo.config(values=list(self._profiles.keys()))
+            self._show_profile(self.raw_config.get("current_profile", ""))
+        finally:
+            self._loading = False

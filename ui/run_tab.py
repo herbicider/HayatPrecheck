@@ -65,13 +65,15 @@ class RunTab(ttk.Frame):
 
     def _build(self):
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(4, weight=1)
+        # Only the log expands; everything above keeps its natural height.
+        self.rowconfigure(5, weight=1)
 
         self._build_method(row=0)
         self._build_controls(row=1)
-        self._build_scores(row=2)
-        self._build_automation(row=3)
-        self._build_log(row=4)
+        self._build_readiness(row=2)
+        self._build_scores(row=3)
+        self._build_automation(row=4)
+        self._build_log(row=5)
 
     def _build_method(self, row: int):
         frame = ttk.LabelFrame(self, text="Verification method", padding=10)
@@ -105,9 +107,10 @@ class RunTab(ttk.Frame):
         self.status_label = ttk.Label(frame, text="Stopped", font=("Arial", 11, "bold"))
         self.status_label.pack(side=tk.LEFT)
 
-        # Readiness sits next to the buttons because it is the reason Start fails.
+    def _build_readiness(self, row: int):
+        """Directly under Start, because it is the reason Start would refuse."""
         self.readiness_frame = ttk.Frame(self)
-        self.readiness_frame.grid(row=row, column=0, sticky="ew", pady=(34, 0))
+        self.readiness_frame.grid(row=row, column=0, sticky="ew", pady=(0, 10))
 
         self.readiness_label = ttk.Label(
             self.readiness_frame, wraplength=640, justify=tk.LEFT
@@ -120,7 +123,7 @@ class RunTab(ttk.Frame):
 
     def _build_scores(self, row: int):
         frame = ttk.LabelFrame(self, text="Last verification", padding=10)
-        frame.grid(row=row, column=0, sticky="ew", pady=(16, 10))
+        frame.grid(row=row, column=0, sticky="ew", pady=(0, 10))
 
         self.rx_label = ttk.Label(frame, text="No prescription verified yet")
         self.rx_label.pack(anchor=tk.W, pady=(0, 6))
@@ -143,8 +146,6 @@ class RunTab(ttk.Frame):
     def _build_automation(self, row: int):
         frame = ttk.LabelFrame(self, text="On full match", padding=10)
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 10))
-
-        automation = self.config_data.setdefault("automation", {})
 
         self.auto_var = tk.BooleanVar(
             value=bool(config_value(self.config_data, "automation", "send_key_on_all_match"))
