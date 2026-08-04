@@ -6,7 +6,7 @@
     "trigger_check_interval_seconds": 1.0
   },
   "thresholds": {
-    "patient": 75,
+    "patient": 50,
     "prescriber": 85,
     "drug": 85,
     "sig": 80
