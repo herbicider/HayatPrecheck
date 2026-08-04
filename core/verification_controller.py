@@ -8,10 +8,9 @@ import sys
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pyautogui
-import tkinter as tk
 from PIL import Image, ImageFilter
 from dotenv import load_dotenv
 
@@ -147,9 +146,23 @@ class VerificationController:
         "up": "up",
     }
 
-    def __init__(self, config: Dict[str, Any], loop: asyncio.AbstractEventLoop):
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        loop: asyncio.AbstractEventLoop,
+        on_event: Optional[Callable[[str, Any], None]] = None,
+    ):
+        """
+        Args:
+            on_event: Called from the monitoring thread as on_event(kind, payload).
+                Kinds are "results" (payload: per-field verification results),
+                "clear_overlay" (payload: None) and "status" (payload: str).
+                The callback must be thread-safe and must not block -- the UI
+                marshals these onto its own thread.
+        """
         self.config = config
         self.loop = loop
+        self.on_event = on_event
         self.advanced_settings = config.get("advanced_settings", {})
 
         self.ocr_provider_type = config.get("ocr_provider", "tesseract")
@@ -174,8 +187,8 @@ class VerificationController:
         self.last_screenshot_hash = None
         self.trigger_check_count = 0  # Add counter for trigger checks
         self.verification_in_progress = False
-        self.overlay_root = None
-        
+        self.overlay_visible = False
+
         # Cache VLM verifier to avoid repeated initialization
         self._vlm_verifier_cache = None
         self._vlm_config_hash = None
@@ -293,87 +306,27 @@ class VerificationController:
             logging.error(f"Error creating prescription signature: {e}")
             return ""
 
-    def _show_tk_overlay(self, results: Dict[str, Any]):
-        """Displays a transparent overlay with colored rectangles."""
-        def _task():
-            try:
-                if self.overlay_root:
-                    self.overlay_root.destroy()
-                
-                root = tk.Tk()
-                self.overlay_root = root
-                self.overlay_created_time = time.time()
-                root.overrideredirect(True)
-                root.geometry(f"{root.winfo_screenwidth()}x{root.winfo_screenheight()}+0+0")
-                root.lift()
-                root.wm_attributes("-topmost", True)
-                root.wm_attributes("-disabled", True)
-                root.wm_attributes("-transparentcolor", "white")
+    def _emit(self, kind: str, payload: Any = None):
+        """Hand an event to the UI. Never raises into the monitoring loop."""
+        if not self.on_event:
+            return
+        try:
+            self.on_event(kind, payload)
+        except Exception as e:
+            logging.error(f"Error dispatching '{kind}' event: {e}")
 
-                canvas = tk.Canvas(root, bg='white', highlightthickness=0)
-                canvas.pack(fill="both", expand=True)
-
-                for result in results.values():
-                    # Check if coords exist before trying to draw
-                    if "coords" in result and len(result["coords"]) == 4:
-                        # Get score and threshold for gradient coloring
-                        score = result.get("score", 0)
-                        threshold = result.get("threshold", 80)
-                        
-                        # Color scheme based on score:
-                        # 100 = Dark green (#006400)
-                        # 100-threshold = Light green (#90EE90)
-                        # threshold-1 = Light red (#FFB6C1) 
-                        # 0 = Red (#FF0000)
-                        
-                        if score == 100:
-                            color = "#006400"  # Dark green
-                        elif score >= threshold:
-                            # Light green gradient from threshold to 100
-                            # Interpolate between light green and dark green
-                            ratio = (score - threshold) / (100 - threshold) if threshold < 100 else 1
-                            # Light green RGB(144,238,144) to Dark green RGB(0,100,0)
-                            r = int(144 * (1 - ratio))
-                            g = int(238 * (1 - ratio) + 100 * ratio)
-                            b = int(144 * (1 - ratio))
-                            color = f"#{r:02x}{g:02x}{b:02x}"
-                        elif score > 0:
-                            # Light red gradient from 1 to threshold-1
-                            # Interpolate between red and light red
-                            ratio = score / threshold if threshold > 0 else 0
-                            # Red RGB(255,0,0) to Light red RGB(255,182,193)
-                            r = 255
-                            g = int(182 * ratio)
-                            b = int(193 * ratio)
-                            color = f"#{r:02x}{g:02x}{b:02x}"
-                        else:
-                            color = "#FF0000"  # Red for score 0
-                        
-                        canvas.create_rectangle(*result["coords"], outline=color, width=3)
-                    else:
-                        logging.warning(f"Skipping overlay for field - missing or invalid coords: {result.get('coords', 'None')}")
-
-                root.update()
-                logging.info("Overlay displayed successfully.")
-            except Exception as e:
-                logging.error(f"Failed to create Tkinter overlay: {e}")
-        
-        # Tkinter calls should be made from the main thread.
-        self.loop.call_soon_threadsafe(_task)
-
+    def _show_overlay(self, results: Dict[str, Any]):
+        """Ask the UI to display the score overlay."""
+        self.overlay_visible = True
+        self.overlay_created_time = time.time()
+        self._emit("results", results)
 
     def _close_overlay(self):
-        """Close the current overlay if it exists."""
-        def _task():
-            if self.overlay_root:
-                try:
-                    self.overlay_root.destroy()
-                    self.overlay_root = None
-                except tk.TclError:
-                    self.overlay_root = None
-        
-        if self.loop.is_running():
-            self.loop.call_soon_threadsafe(_task)
+        """Ask the UI to hide the score overlay."""
+        if not self.overlay_visible:
+            return
+        self.overlay_visible = False
+        self._emit("clear_overlay")
 
     def _warm_up_main_ocr(self):
         """Preload OCR provider in the main process to avoid first-use latency."""
@@ -887,7 +840,7 @@ class VerificationController:
             if matches > 0 and matches == len(results):
                 await self._handle_all_fields_matched()
 
-            self._show_tk_overlay(results)
+            self._show_overlay(results)
         except Exception as e:
             logging.error(f"Error during verification: {e}")
         finally:
@@ -994,11 +947,25 @@ class VerificationController:
 
 
     def stop(self):
-        """Stop the monitoring loop gracefully."""
+        """Signal the monitoring loop to stop. Non-blocking, safe from any thread.
+
+        The process pool is torn down by async_run's finally clause, so callers
+        should join the monitoring thread to know teardown has finished. Doing it
+        here instead would block the caller (the UI thread) on in-flight OCR.
+        """
         logging.info("Stop requested - monitoring will terminate...")
         self.should_stop = True
         self._close_overlay()
-        self.process_pool.shutdown(wait=True)
+
+    def _shutdown_pool(self):
+        """Shut the OCR process pool down. Idempotent."""
+        if getattr(self, "_pool_closed", False):
+            return
+        self._pool_closed = True
+        try:
+            self.process_pool.shutdown(wait=True)
+        except Exception as e:
+            logging.error(f"Error shutting down OCR process pool: {e}")
 
     async def async_run(self):
         """Main asynchronous monitoring loop."""
@@ -1019,7 +986,18 @@ class VerificationController:
         
         method_desc = method_descriptions.get(verification_method, f"❓ Unknown method ({verification_method})")
         logging.info(f"{method_desc} monitoring active - Looking for triggers: {trigger_keywords}")
-            
+        self._emit("status", f"Monitoring — {method_desc}")
+
+        try:
+            await self._monitor_loop()
+        finally:
+            self._close_overlay()
+            self._shutdown_pool()
+            self._emit("status", "Stopped")
+            logging.info("Monitoring loop exited")
+
+    async def _monitor_loop(self):
+        """The polling loop itself. Teardown is handled by async_run."""
         consecutive_no_change = 0
         loop_count = 0
 
@@ -1031,7 +1009,7 @@ class VerificationController:
                 screen_changed = self._has_screen_changed(screenshot)
                 if screen_changed:
                     consecutive_no_change = 0
-                    if self.overlay_root and (time.time() - self.overlay_created_time) > self.advanced_settings.get("overlay", {}).get("min_display_seconds", 3.0):
+                    if self.overlay_visible and (time.time() - self.overlay_created_time) > self.advanced_settings.get("overlay", {}).get("min_display_seconds", 3.0):
                         self._close_overlay()
                 else:
                     consecutive_no_change += 1
@@ -1093,6 +1071,7 @@ class VerificationController:
                     
                     if should_process:
                         logging.info(f"Processing Rx#{current_rx_number} ({process_reason}) - State change: recently_triggered={self.recently_triggered} -> True")
+                        self._emit("status", f"Verifying Rx#{current_rx_number}")
                         self.last_rx_number = current_rx_number
                         self.current_session_rx = current_rx_number  # Track current session
                         self.recently_triggered = True
@@ -1171,7 +1150,8 @@ def main():
         logging.critical("Failed to load configuration. Exiting.")
         sys.exit(1)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     controller = VerificationController(config, loop)
 
     try:

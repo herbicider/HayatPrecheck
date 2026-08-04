@@ -41,9 +41,8 @@ import json
 import os
 import time
 import sys
-import argparse
 import shutil
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 DEFAULT_AUTOHOTKEY_V2_TEMPLATE = (
     "#Requires AutoHotkey v2.0\n"
@@ -52,18 +51,27 @@ DEFAULT_AUTOHOTKEY_V2_TEMPLATE = (
 )
 
 class SettingsGUI:
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("Settings")
-        self.root.geometry("1700x900")
-        self.root.minsize(1500, 800)
-        
-        # Parse command line arguments
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--mode", choices=["ocr", "vlm"], default="ocr", help="Initial configuration mode")
-        args, _ = parser.parse_known_args()
-        initial_mode = args.mode
-        
+    """Region editor and matching settings.
+
+    Builds into a parent widget rather than owning a window, so the main app can
+    place its two panels (``regions_frame`` and ``matching_frame``) on separate
+    notebook tabs. Config is edited in memory only; the app writes it on save.
+    """
+
+    def __init__(
+        self,
+        parent: tk.Misc,
+        settings_manager=None,
+        on_dirty: Optional[Callable[[], None]] = None,
+    ):
+        self.container = parent
+        # The toplevel is needed to hide the app before taking a screenshot.
+        self.window = parent.winfo_toplevel()
+        self.settings_manager = settings_manager
+        self._on_dirty = on_dirty or (lambda: None)
+
+        initial_mode = "ocr"
+
         # Initialize all variables first
         self.config: Optional[Dict[str, Any]] = None
         self.vlm_config: Optional[Dict[str, Any]] = None
@@ -113,16 +121,21 @@ class SettingsGUI:
         self.canvas_window: Optional[int] = None
         self.zoom_label: Optional[ttk.Label] = None
         
-        # Load config and setup UI
-        if not self.load_config():
-            messagebox.showerror("Error", "Could not load config.json. Please ensure the file exists.")
-            self.root.destroy()
-            return
+        # Share the app's config object when embedded so edits are visible to
+        # every tab; fall back to reading the file when used standalone.
+        if self.settings_manager is not None and self.settings_manager.config:
+            self.config = self.settings_manager.config
+        elif not self.load_config():
+            raise RuntimeError("Could not load config/config.json")
+
         # Load VLM configuration (create defaults if not present)
         self.load_vlm_config()
-            
+
         self.setup_ui()
-        self.take_screenshot()
+        # Screenshot capture hides and re-shows the window, which would flash the
+        # UI during startup. The app calls ensure_screenshot() when the Regions
+        # tab is first opened instead.
+        self._screenshot_pending = True
 
     def load_vlm_config(self) -> None:
         """Load VLM configuration from config/vlm_config.json, create defaults if missing."""
@@ -177,63 +190,73 @@ class SettingsGUI:
             return False
     
     def save_config(self):
-        """Save current configuration to config.json file."""
-        if not self.config:
-            messagebox.showerror("Error", "No configuration to save")
-            return
-            
-        try:
-            config_path = os.path.join("config", "config.json")
-            # Ensure config directory exists
-            config_dir = os.path.dirname(config_path)
-            if not os.path.exists(config_dir):
-                os.makedirs(config_dir)
-                
-            with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump(self.config, f, indent=2)
-            messagebox.showinfo("Success", "Configuration saved successfully!")
-            self.update_status("Configuration saved")
-            
-            # Auto-save notification
-            if self.auto_save.get():
-                self.update_status("Auto-save: Configuration updated")
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not save config: {e}")
-            self.update_status("Error saving configuration")
+        """Mark the config dirty. The app writes it to disk on Save / Ctrl+S.
+
+        Every widget in this panel edits self.config in memory, so there is no
+        work to do here beyond telling the app something changed.
+        """
+        self._on_dirty()
+        self.update_status("Changed — press Ctrl+S to save")
 
     def save_vlm_config(self):
-        """Save current VLM configuration to config/vlm_config.json with backup."""
+        """Write only vlm_regions back to config/vlm_config.json.
+
+        Merges into the file as it is on disk rather than writing self.vlm_config
+        wholesale: the AI tab edits profiles and prompts in the same file, so a
+        blind overwrite from either side would discard the other's changes.
+        """
         if not self.vlm_config:
-            messagebox.showerror("Error", "No VLM configuration to save")
             return
+
+        vlm_path = os.path.join("config", "vlm_config.json")
         try:
-            vlm_path = os.path.join("config", "vlm_config.json")
-            # Backup existing
+            on_disk = {}
             if os.path.exists(vlm_path):
+                with open(vlm_path, 'r', encoding='utf-8') as f:
+                    on_disk = json.load(f)
+
                 backup_dir = os.path.join("config_backups")
                 os.makedirs(backup_dir, exist_ok=True)
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
                 backup_file = os.path.join(backup_dir, f"vlm_config_backup_{timestamp}.json")
-                with open(vlm_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
                 with open(backup_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
-            # Save new
+                    json.dump(on_disk, f, indent=2, ensure_ascii=False)
+
+            on_disk["vlm_regions"] = self.vlm_config.get("vlm_regions", {})
+
             with open(vlm_path, 'w', encoding='utf-8') as f:
-                json.dump(self.vlm_config, f, indent=2)
-            messagebox.showinfo("Success", "VLM configuration saved successfully!")
-            self.update_status("VLM configuration saved")
+                json.dump(on_disk, f, indent=2, ensure_ascii=False)
+
+            self.vlm_config = on_disk
+            self.update_status("VLM region saved")
         except Exception as e:
-            messagebox.showerror("Error", f"Could not save VLM config: {e}")
-            self.update_status("Error saving VLM configuration")
+            messagebox.showerror("Error", f"Could not save VLM regions: {e}")
+            self.update_status("Error saving VLM regions")
 
     def save_active_config(self):
-        """Save configuration for the currently active mode."""
+        """Persist whichever config the region editor is currently targeting."""
         if self.mode_var.get() == "vlm":
+            # VLM regions live in their own file, so write them straight through.
             self.save_vlm_config()
         else:
             self.save_config()
+
+    def ensure_screenshot(self):
+        """Grab the screen the first time the Regions tab is opened."""
+        if not getattr(self, "_screenshot_pending", False):
+            return
+        self._screenshot_pending = False
+        self.take_screenshot()
+
+    def reload_from_config(self):
+        """Re-sync widgets after the app reloaded config from disk."""
+        if self.settings_manager is not None and self.settings_manager.config:
+            self.config = self.settings_manager.config
+        self.load_vlm_config()
+        self.update_field_options()
+        self.update_coordinate_display()
+        self.draw_all_rectangles()
+        self.update_status("Reloaded from disk")
     
     def import_config(self):
         """Import configuration from a different file."""
@@ -276,14 +299,16 @@ class SettingsGUI:
                 self.update_status("Error exporting configuration")
     
     def setup_ui(self):
-        """Set up the complete user interface with enhanced features."""
-        # Create menu bar
-        self.create_menu()
-        
-        # Main frame with better layout
-        main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
+        """Build the two panels the app places on its Regions and Matching tabs."""
+        # Regions tab: coordinate controls on the left, screenshot on the right.
+        self.regions_frame = ttk.Frame(self.container)
+        main_frame = self.regions_frame
+
+        # Matching tab: thresholds, automation, optional fields, trigger, timing.
+        self.matching_frame = ttk.Frame(self.container, padding=12)
+
+        self._bind_shortcuts()
+
         # Left panel - Scrollable Controls (Wider to fit all content)
         left_container = ttk.Frame(main_frame, width=550)
         left_container.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
@@ -371,44 +396,13 @@ class SettingsGUI:
         
         # Bind resize event to update canvas size
         self.canvas_frame.bind("<Configure>", self.on_canvas_frame_resize)
-        
-    def create_menu(self):
-        """Create enhanced menu bar."""
-        menubar = tk.Menu(self.root)
-        self.root.config(menu=menubar)
-        
-        # File menu
-        file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Import Config...", command=self.import_config)
-        file_menu.add_command(label="Export Config...", command=self.export_config)
-        file_menu.add_separator()
-        file_menu.add_command(label="Save (Active Configuration)", command=self.save_active_config, accelerator="Ctrl+S")
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.root.quit)
-        
-        # View menu
-        view_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="View", menu=view_menu)
-        view_menu.add_checkbutton(label="Show Labels", variable=self.show_labels, command=self.draw_all_rectangles)
-        view_menu.add_checkbutton(label="Preview Mode", variable=self.preview_mode, command=self.toggle_preview_mode)
-        view_menu.add_separator()
-        view_menu.add_command(label="Zoom In", command=lambda: self.zoom(1.2))
-        view_menu.add_command(label="Zoom Out", command=lambda: self.zoom(0.8))
-        view_menu.add_command(label="Reset Zoom", command=lambda: self.zoom(1.0, reset=True))
-        
-        # Tools menu
-        tools_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Tools", menu=tools_menu)
-        tools_menu.add_command(label="Take New Screenshot", command=self.take_screenshot)
-        tools_menu.add_command(label="Test OCR on Selection", command=self.test_ocr)
-        tools_menu.add_checkbutton(label="Auto-Save", variable=self.auto_save)
-        tools_menu.add_separator()
-        tools_menu.add_command(label="Validate All Regions", command=self.validate_all_regions)
-        
-        # Bind keyboard shortcuts
-        self.root.bind('<Control-s>', lambda e: self.save_active_config())
-        self.root.bind('<F5>', lambda e: self.take_screenshot())
+
+        # Populate the Matching tab.
+        self.setup_settings_panel(self.matching_frame)
+
+    def _bind_shortcuts(self):
+        """F5 re-grabs the screen. Ctrl+S is owned by the app (it saves)."""
+        self.window.bind('<F5>', lambda e: self.take_screenshot())
 
     def on_mode_change(self):
         """Handle switching between OCR/General and VLM modes."""
@@ -460,11 +454,12 @@ class SettingsGUI:
         ttk.Label(header_frame, text="Enhanced Pharmacy Verification Tool", 
                  font=("Arial", 9, "italic")).pack(pady=(5, 0))
         
-        # Mode selection (OCR vs VLM)
-        mode_frame = ttk.LabelFrame(parent, text="Configuration Target", padding=10)
+        # Which set of regions is being edited. Both methods need the trigger and
+        # Rx-number regions; only the field/comparison areas differ.
+        mode_frame = ttk.LabelFrame(parent, text="Editing regions for", padding=10)
         mode_frame.pack(fill=tk.X, pady=(10, 15))
-        ttk.Radiobutton(mode_frame, text="OCR & General (config.json)", variable=self.mode_var, value="ocr", command=self.on_mode_change).pack(anchor=tk.W)
-        ttk.Radiobutton(mode_frame, text="VLM Regions (vlm_config.json)", variable=self.mode_var, value="vlm", command=self.on_mode_change).pack(anchor=tk.W)
+        ttk.Radiobutton(mode_frame, text="Legacy OCR — one small area per field", variable=self.mode_var, value="ocr", command=self.on_mode_change).pack(anchor=tk.W)
+        ttk.Radiobutton(mode_frame, text="AI vision — one area covering both sides", variable=self.mode_var, value="vlm", command=self.on_mode_change).pack(anchor=tk.W)
         
         # Instructions with better formatting and word wrap
         instr_frame = ttk.LabelFrame(parent, text="Instructions", padding=10)
@@ -589,9 +584,8 @@ class SettingsGUI:
                              command=self.save_active_config)
         save_btn.pack(fill=tk.X, pady=5)
         
-        # General Settings Panel
-        self.setup_settings_panel(parent)
-        
+        # General settings live on the Matching tab, populated by setup_ui.
+
         # Status display
         status_frame = ttk.LabelFrame(parent, text="Status", padding=10)
         status_frame.pack(fill=tk.X, pady=(0, 5))
@@ -975,7 +969,7 @@ class SettingsGUI:
         """Update the status label with a message."""
         if self.status_label:
             self.status_label.config(text=message)
-            self.root.after(3000, lambda: self.status_label.config(text="Ready"))
+            self.container.after(3000, lambda: self.status_label.config(text="Ready"))
     
     def toggle_preview_mode(self):
         """Toggle preview mode for better viewing."""
@@ -1047,7 +1041,7 @@ class SettingsGUI:
         """Handle canvas frame resize to update screenshot display."""
         if self.screenshot and hasattr(self, 'canvas') and self.canvas:
             # Delay the update slightly to avoid too many updates during resize
-            self.root.after(100, self._delayed_resize_update)
+            self.container.after(100, self._delayed_resize_update)
     
     def _delayed_resize_update(self):
         """Delayed update after resize to avoid flickering."""
@@ -1067,7 +1061,7 @@ class SettingsGUI:
         
         if available_width <= 1 or available_height <= 1:
             # Frame not ready yet
-            self.root.after(50, self._update_display_image)
+            self.container.after(50, self._update_display_image)
             return
         
         # Calculate display size based on zoom and available space
@@ -1255,12 +1249,12 @@ class SettingsGUI:
         """Take a new screenshot for region adjustment."""
         try:
             # Hide window temporarily
-            self.root.withdraw()
+            self.window.withdraw()
             self.update_status("Taking screenshot...")
-            self.root.after(500, self._take_screenshot_delayed)
+            self.container.after(500, self._take_screenshot_delayed)
         except Exception as e:
             messagebox.showerror("Error", f"Could not take screenshot: {e}")
-            self.root.deiconify()
+            self.window.deiconify()
     
     def _take_screenshot_delayed(self):
         """Take screenshot after delay to hide window."""
@@ -1277,13 +1271,13 @@ class SettingsGUI:
             self.drag_start = None
             self.current_rect = None
             
-            self.root.deiconify()
+            self.window.deiconify()
             self.draw_all_rectangles()
             self.update_status("Screenshot updated")
             
         except Exception as e:
             messagebox.showerror("Error", f"Could not process screenshot: {e}")
-            self.root.deiconify()
+            self.window.deiconify()
             self.update_status("Screenshot failed")
     
     def on_click(self, event):
@@ -1766,10 +1760,3 @@ class SettingsGUI:
         offset = len(used_positions) * 20
         return x1 + 5, y1 + 5 + offset
     
-    def run(self):
-        """Start the application main loop."""
-        self.root.mainloop()
-
-if __name__ == "__main__":
-    app = SettingsGUI()
-    app.run()
