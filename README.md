@@ -21,7 +21,7 @@ This system automates pharmacy data entry verification using two complementary a
 - Offline operation capability
 
 **User-Friendly Interface**
-- Web-based Streamlit dashboard
+- Single desktop window, no terminal and no browser
 - Point-and-click coordinate setup
 
 ---
@@ -205,48 +205,36 @@ cd HayatPrecheck
 
 #### D. Run the System (Daily Use)
 
-**Every time you want to use the verification system:**
+**Double-click `app.pyw`.** That is the whole thing.
 
-#### 🚀 EASIEST WAY (Recommended for Windows):
+Windows associates `.pyw` with `pythonw.exe`, so the app opens as a normal
+window with no console behind it. There is no web server and no browser tab.
 
-1. **Navigate to the HayatPrecheck folder**
-2. **Double-click `start.bat`**
-3. **That's it!** The system launches automatically
+If `.pyw` is not associated on your machine, double-click `start.bat` instead --
+it does the same thing via `pythonw app.pyw`.
 
-The `start.bat` file:
-- Automatically activates Python environment
-- Launches the menu system
-- No command prompt needed!
-- No typing required!
+**Create a desktop shortcut (optional):**
 
-#### Alternative: Using Command Prompt
-
-1. **Open Command Prompt**
-2. **Navigate to folder:**
-   ```bash
-   cd C:\Users\YourName\Desktop\HayatPrecheck
-   ```
-
-3. **Start the launcher:**
-   ```bash
-   python launcher.py
-   ```
-
-4. **Choose an option from the menu:**
-   - Option 1: Setup coordinates (first time only)
-   - Option 2: Start verification
-   - Option 3: Open web dashboard
-   - Option 4: Configure AI/VLM settings
-
-#### E. Create Desktop Shortcut (Optional)
-
-**For even faster access:**
-
-1. Right-click on `start.bat` in the HayatPrecheck folder
+1. Right-click `app.pyw` (or `start.bat`) in the HayatPrecheck folder
 2. Choose "Create shortcut"
-3. Drag the shortcut to your Desktop
-4. Rename it: "Pharmacy Verification"
-5. **Double-click anytime to start!**
+3. Drag the shortcut to your Desktop and rename it "Pharmacy Verification"
+
+#### The five tabs
+
+| Tab | What it is for |
+|---|---|
+| **Run** | Start/Stop, pick the verification method, watch scores and the log. The tab you use daily. |
+| **Regions** | Drag the screen areas to read. Press F5 to re-grab the screenshot. |
+| **Matching** | Score thresholds, automation key, optional fields, trigger keywords, timing. |
+| **AI (VLM)** | Endpoint, model, API key and prompts. "Test connection" checks it end to end. |
+| **Legacy OCR** | Offline CPU-only OCR engine choice. |
+
+Settings are saved when you press **Ctrl+S** (or File > Save). A `*` in the
+title bar means you have unsaved changes. Changes to a running verification take
+effect the next time you press Start.
+
+If the **Run** tab says something is not set up, the "Fix this" button jumps to
+the tab that can fix it.
 
 ---
 
@@ -273,8 +261,8 @@ The `start.bat` file:
    - The model runs on `http://localhost:11434`
 
 4. **Configure in Pharmacy System:**
-   - Run: `streamlit run ui/streamlit_app.py`
-   - Go to "VLM Configuration" page
+   - Open the app (double-click `app.pyw`)
+   - Go to the **AI (VLM)** tab
    - Set API URL: `http://localhost:11434/v1`
    - Set Model Name: `qwen3-vl:8b`
    - Click "Test Connection"
@@ -366,7 +354,6 @@ ollama pull qwen3-vl:8b
 ```bash
 After run the launch.bat
 
-# Access at: http://localhost:8501
 
  If no new page pop up
 ```
@@ -409,26 +396,47 @@ After run the launch.bat
 
 ```
 📁 HayatPrecheck/
-├── launcher.py              # Main entry point - START HERE
+├── app.pyw                  # Main entry point - DOUBLE-CLICK THIS
+├── start.bat                # Optional shortcut to the same thing
 ├── requirements.txt         # Python dependencies
 ├── .env                     # API keys (create this, git-ignored)
 │
 ├── 📁 config/              # Configuration files
 │   ├── config.json         # Main settings
-│   ├── vlm_config.json     # VLM/AI settings
+│   ├── vlm_config.json     # VLM/AI settings (no secrets, only ${VAR} refs)
 │   └── abbreviations.json  # Pharmacy terms
 │
-├── 📁 core/                # Verification engine
-│   ├── verification_controller.py  # Main logic
+├── 📁 core/                # Verification engine (no UI code)
+│   ├── verification_controller.py  # Monitoring loop
 │   ├── comparison_engine.py        # Field matching
-│   └── ocr_provider.py             # OCR management
+│   ├── ocr_provider.py             # OCR management
+│   ├── settings_manager.py         # Config I/O + DEFAULT_CONFIG
+│   └── readiness.py                # "Is it set up?" pre-flight check
 │
 ├── 📁 ai/                  # AI/ML modules
 │   └── vlm_verifier.py     # Vision model integration
 │
-└── 📁 ui/                  # User interfaces
-    ├── streamlit_app.py    # Web dashboard
-    └── settings_gui.py     # Unified coordinate setup (OCR & VLM)
+├── 📁 ui/                  # Desktop UI (the only place tkinter is used)
+│   ├── main_window.py      # Window, tabs, thread + overlay lifecycle
+│   ├── run_tab.py          # Start/stop, live scores, log tail
+│   ├── settings_gui.py     # Regions + Matching panels
+│   ├── vlm_tab.py          # AI endpoint, model, key, prompts
+│   ├── legacy_ocr_tab.py   # Offline OCR engine choice
+│   └── overlay.py          # On-screen score rectangles
+│
+└── 📁 tests/               # pytest; no display or OCR binary needed
+```
+
+### How it runs
+
+One process. Tkinter owns the main thread; the verification loop runs on a worker
+thread and reports results back through a queue that the window drains via
+`after()`. Nothing outside `ui/` imports tkinter, so `core/` and `ai/` stay
+headless and testable.
+
+```bash
+pip install -r requirements.txt
+python -m pytest tests/ -q
 ```
 
 ---

@@ -11,6 +11,7 @@ from tkinter import ttk
 from typing import Any, Callable, Dict
 
 from core.ocr_provider import check_ocr_availability
+from core.settings_manager import config_value
 
 ENGINES = (
     ("auto", "Auto", "Picks the best available engine, using the GPU when present."),
@@ -68,7 +69,7 @@ class LegacyOcrTab(ttk.Frame):
         ).pack(anchor=tk.W, pady=(2, 12))
 
         self.engine_var = tk.StringVar(
-            value=self.config_data.get("ocr_provider", "auto")
+            value=config_value(self.config_data, "ocr_provider")
         )
 
         for name, label, blurb in ENGINES:
@@ -111,7 +112,9 @@ class LegacyOcrTab(ttk.Frame):
         ttk.Label(grid, text="Tesseract options:", width=20).grid(
             row=0, column=0, sticky=tk.W, pady=3
         )
-        self.psm_var = tk.StringVar(value=tesseract.get("config_options", "--psm 7"))
+        self.psm_var = tk.StringVar(
+            value=config_value(self.config_data, "tesseract", "config_options")
+        )
         entry = ttk.Entry(grid, textvariable=self.psm_var, width=18)
         entry.grid(row=0, column=1, sticky=tk.W, pady=3)
         entry.bind("<FocusOut>", lambda e: self._on_settings_change())
@@ -121,14 +124,16 @@ class LegacyOcrTab(ttk.Frame):
             row=1, column=0, sticky=tk.W, pady=3
         )
         self.psm_fallback_var = tk.StringVar(
-            value=tesseract.get("fallback_config", "--psm 8")
+            value=config_value(self.config_data, "tesseract", "fallback_config")
         )
         entry2 = ttk.Entry(grid, textvariable=self.psm_fallback_var, width=18)
         entry2.grid(row=1, column=1, sticky=tk.W, pady=3)
         entry2.bind("<FocusOut>", lambda e: self._on_settings_change())
         entry2.bind("<Return>", lambda e: self._on_settings_change())
 
-        self.gpu_var = tk.BooleanVar(value=bool(easyocr_cfg.get("use_gpu", True)))
+        self.gpu_var = tk.BooleanVar(
+            value=bool(config_value(self.config_data, "easyocr", "use_gpu"))
+        )
         ttk.Checkbutton(
             frame,
             text="EasyOCR: use GPU when available",
@@ -147,8 +152,9 @@ class LegacyOcrTab(ttk.Frame):
         self._on_dirty()
 
     def reload_from_config(self):
-        self.engine_var.set(self.config_data.get("ocr_provider", "auto"))
-        tesseract = self.config_data.get("tesseract", {})
-        self.psm_var.set(tesseract.get("config_options", "--psm 7"))
-        self.psm_fallback_var.set(tesseract.get("fallback_config", "--psm 8"))
-        self.gpu_var.set(bool(self.config_data.get("easyocr", {}).get("use_gpu", True)))
+        self.engine_var.set(config_value(self.config_data, "ocr_provider"))
+        self.psm_var.set(config_value(self.config_data, "tesseract", "config_options"))
+        self.psm_fallback_var.set(
+            config_value(self.config_data, "tesseract", "fallback_config")
+        )
+        self.gpu_var.set(bool(config_value(self.config_data, "easyocr", "use_gpu")))

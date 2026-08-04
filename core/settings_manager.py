@@ -22,18 +22,136 @@ Usage:
     settings.validate_coordinates()
 """
 
+import copy
 import json
 import os
 import time
 import shutil
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
-import pyautogui
-from PIL import Image, ImageEnhance
-import pytesseract
+# pyautogui, PIL and pytesseract are imported lazily inside the two methods
+# that need a screen. Importing them here would make config loading -- and its
+# tests -- depend on a display and on the Tesseract binary.
 import logging
 import re
 from dotenv import load_dotenv
+
+# The single source of truth for default settings.
+#
+# Defaults used to be inlined as literals at every read site, and they disagreed:
+# trigger keywords defaulted to ["Zoom Select"] in config.json but
+# ["pre","check","rx"] in the UI and controller; same_prescription_wait_seconds
+# was 10.0 on disk and 3.0 in both readers; ocr_provider was "auto" on disk and
+# "tesseract" in code. Because the old Streamlit pages saved whenever a widget
+# value differed from what was loaded, simply opening a settings page could
+# rewrite config.json to the widget's default. Read defaults from here instead of
+# passing literals to .get().
+#
+# Regions are deliberately absent: there is no sensible default for coordinates
+# on someone else's screen, and inventing them would make an unconfigured system
+# look configured. core/readiness.py reports them as unset instead.
+DEFAULT_CONFIG: Dict[str, Any] = {
+    "verification_method": "local_ocr_fuzzy",
+    "ocr_provider": "auto",
+    "timing": {
+        "fast_polling_seconds": 0.5,
+        "same_prescription_wait_seconds": 10.0,
+        "trigger_content_load_delay_seconds": 0.5,
+        "trigger_check_interval_seconds": 1.0,
+    },
+    "thresholds": {
+        "patient": 50,
+        "prescriber": 85,
+        "drug": 85,
+        "sig": 80,
+        "patient_dob": 65,
+        "patient_phone": 65,
+        "patient_address": 65,
+        "prescriber_address": 65,
+    },
+    "automation": {
+        "send_key_on_all_match": False,
+        "mode": "preset_key",
+        "key_on_all_match": "f12",
+        "key_delay_seconds": 0.5,
+        "autohotkey_v2_code": (
+            "#Requires AutoHotkey v2.0\n"
+            "; Add your custom AutoHotkey v2 actions below.\n"
+            'Send "{F12}"\n'
+        ),
+    },
+    "optional_fields_enabled": {
+        "patient_dob": False,
+        "patient_phone": False,
+        "patient_address": False,
+        "prescriber_address": False,
+    },
+    "tesseract": {
+        "config_options": "--psm 7",
+        "fallback_config": "--psm 8",
+    },
+    "easyocr": {
+        "use_gpu": True,
+        "confidence_threshold": 0.5,
+    },
+    "paddleocr": {
+        "use_gpu": False,
+        "confidence_threshold": 0.8,
+        "use_angle_cls": False,
+        "show_log": False,
+        "lang": "en",
+    },
+    "advanced_settings": {
+        "trigger": {
+            "keywords": ["Zoom Select"],
+            "keyword_similarity_threshold": 90,
+            "min_keyword_matches": 1,
+            "lost_reset_delay_seconds": 5.0,
+        },
+        "overlay": {
+            "min_display_seconds": 3.0,
+        },
+        "hashing": {
+            "crop_box": {"left": 50, "top": 150, "right": 800, "bottom": 500},
+            "resize_to": [32, 32],
+            "blur_radius": 0.5,
+            "bucket_size": 8,
+        },
+        "startup": {
+            "warm_up_ocr_on_start": True,
+            "warm_up_ocr_workers": True,
+            "workers_to_warm": 2,
+            "ocr_worker_count": 4,
+        },
+    },
+}
+
+_MISSING = object()
+
+
+def config_value(config: Dict[str, Any], *path: str, default: Any = _MISSING) -> Any:
+    """Read a nested setting, falling back to DEFAULT_CONFIG.
+
+        config_value(cfg, "timing", "fast_polling_seconds")
+        config_value(cfg, "advanced_settings", "trigger", "keywords")
+
+    Raises KeyError for a path that is in neither the config nor the defaults, so
+    a typo surfaces immediately instead of silently yielding None.
+    """
+    for source in (config, DEFAULT_CONFIG):
+        node = source
+        for key in path:
+            if not isinstance(node, dict) or key not in node:
+                node = _MISSING
+                break
+            node = node[key]
+        if node is not _MISSING:
+            return node
+
+    if default is not _MISSING:
+        return default
+    raise KeyError(f"No such setting and no default: {'.'.join(path)}")
+
 
 def substitute_env_vars(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -278,6 +396,8 @@ class SettingsManager:
         
         try:
             # Get screen size
+            import pyautogui
+
             screen_width, screen_height = pyautogui.size()
             
             # Check trigger region
@@ -357,6 +477,10 @@ class SettingsManager:
             
             # Capture screenshot of the region
             x1, y1, x2, y2 = coords
+            import pyautogui
+            import pytesseract
+            from PIL import ImageEnhance
+
             screenshot = pyautogui.screenshot(region=(x1, y1, x2 - x1, y2 - y1))
             
             # Enhance image for better OCR
@@ -488,40 +612,10 @@ class SettingsManager:
         return True
     
     def get_default_config(self) -> Dict[str, Any]:
-        """Get a default configuration template"""
-        return {
-            "timing": {
-                "fast_polling_seconds": 0.2,
-                "trigger_check_interval_seconds": 1.0,
-                "same_prescription_wait_seconds": 3.0,
-                "max_static_sleep_seconds": 2.0,
-                "verification_wait_seconds": 0.5
-            },
-            "thresholds": {
-                "patient": 70,
-                "prescriber": 70,
-                "drug": 70,
-                "sig": 65
-            },
-            "regions": {
-                "trigger": [5, 56, 144, 79],
-                "fields": {
-                    "patient_name": {
-                        "entered": [91, 147, 270, 165],
-                        "source": [518, 400, 840, 419],
-                        "score_fn": "token_sort_ratio",
-                        "threshold_key": "patient"
-                    },
-                    "prescriber_name": {
-                        "entered": [91, 222, 290, 239],
-                        "source": [516, 276, 961, 303],
-                        "score_fn": "token_sort_ratio",
-                        "threshold_key": "prescriber"
-                    }
-                }
-            }
-        }
-    
+        """A complete default config. See DEFAULT_CONFIG for why this matters."""
+        return copy.deepcopy(DEFAULT_CONFIG)
+
+
     def reset_to_defaults(self) -> bool:
         """Reset configuration to default values"""
         try:

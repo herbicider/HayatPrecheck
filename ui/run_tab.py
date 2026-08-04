@@ -11,6 +11,7 @@ from tkinter import ttk
 from typing import Any, Callable, Dict
 
 from core import readiness
+from core.settings_manager import config_value
 
 METHOD_CHOICES = (
     (
@@ -76,7 +77,7 @@ class RunTab(ttk.Frame):
         frame = ttk.LabelFrame(self, text="Verification method", padding=10)
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 10))
 
-        current = self.config_data.get("verification_method", "local_ocr_fuzzy")
+        current = config_value(self.config_data, "verification_method")
         self.method_var = tk.StringVar(value=current)
 
         for value, label, blurb in METHOD_CHOICES:
@@ -146,7 +147,7 @@ class RunTab(ttk.Frame):
         automation = self.config_data.setdefault("automation", {})
 
         self.auto_var = tk.BooleanVar(
-            value=bool(automation.get("send_key_on_all_match", False))
+            value=bool(config_value(self.config_data, "automation", "send_key_on_all_match"))
         )
         ttk.Checkbutton(
             frame,
@@ -159,7 +160,9 @@ class RunTab(ttk.Frame):
         key_row.pack(anchor=tk.W, pady=(6, 0))
 
         ttk.Label(key_row, text="Key:").pack(side=tk.LEFT)
-        self.key_var = tk.StringVar(value=automation.get("key_on_all_match", "f12"))
+        self.key_var = tk.StringVar(
+            value=config_value(self.config_data, "automation", "key_on_all_match")
+        )
         key_combo = ttk.Combobox(
             key_row,
             textvariable=self.key_var,
@@ -170,7 +173,7 @@ class RunTab(ttk.Frame):
         key_combo.pack(side=tk.LEFT, padx=(6, 0))
         key_combo.bind("<<ComboboxSelected>>", lambda e: self._on_automation_change())
 
-        mode = automation.get("mode", "preset_key")
+        mode = config_value(self.config_data, "automation", "mode")
         if mode == "autohotkey_v2":
             ttk.Label(
                 key_row,
@@ -271,10 +274,11 @@ class RunTab(ttk.Frame):
 
     def reload_from_config(self):
         """Pull widget values back from config (after an import or reset)."""
-        self.method_var.set(self.config_data.get("verification_method", "local_ocr_fuzzy"))
-        automation = self.config_data.get("automation", {})
-        self.auto_var.set(bool(automation.get("send_key_on_all_match", False)))
-        self.key_var.set(automation.get("key_on_all_match", "f12"))
+        self.method_var.set(config_value(self.config_data, "verification_method"))
+        self.auto_var.set(
+            bool(config_value(self.config_data, "automation", "send_key_on_all_match"))
+        )
+        self.key_var.set(config_value(self.config_data, "automation", "key_on_all_match"))
         self.refresh_readiness()
 
     # --------------------------------------------------------------- handlers
