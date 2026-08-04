@@ -1,5 +1,4 @@
 {
-  "_SECURITY_NOTE": "NEVER hardcode API keys in this file! Always use environment variables stored in .env file. Use ${VARIABLE_NAME} syntax to reference .env variables. Example: 'api_key': 'REDACTED_LEAKED_KEY'",
   "current_profile": "online1",
   "profiles": {
     "local": {
