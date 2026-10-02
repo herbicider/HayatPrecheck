@@ -1,6 +1,6 @@
 {
   "timing": {
-    "fast_polling_seconds": 0.5,
+    "fast_polling_seconds": 0.25,
     "same_prescription_wait_seconds": 10.0,
     "trigger_content_load_delay_seconds": 0.5,
     "trigger_check_interval_seconds": 1.0
@@ -191,7 +191,9 @@
       ],
       "keyword_similarity_threshold": 90,
       "min_keyword_matches": 1,
-      "lost_reset_delay_seconds": 5.0
+      "lost_reset_delay_seconds": 5.0,
+      "unconfirmed_rx_stable_seconds": 2.0,
+      "rx_unreadable_warn_seconds": 3.0
     },
     "overlay": {
       "min_display_seconds": 3.0
@@ -234,5 +236,12 @@
   "vlm_test": {
     "retries": 2,
     "backoff_seconds": 1.5
+  },
+  "indicator": {
+    "enabled": true,
+    "corner": "top-center",
+    "show_label": true,
+    "opacity": 0.85,
+    "margin_px": 8
   }
 }

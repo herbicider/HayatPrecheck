@@ -309,6 +309,37 @@ class TesseractOcrProvider(OcrProvider):
             logging.error(f"Error in OCR for region {region}: {e}")
             return ""
 
+    def read_digits(self, screenshot: Image.Image, region: Tuple[int, int, int, int]) -> str:
+        """Second-opinion read for short numeric regions such as the Rx number.
+
+        Tesseract drops glyphs that touch the image edge, which loses the leading
+        digits of a tightly cropped number. This pads the crop with a white
+        border, uses a global (Otsu) threshold and restricts output to digits.
+        """
+        try:
+            ocr_config = self.advanced_settings.get("ocr", {})
+            scale = max(1, int(ocr_config.get("digit_resize_factor", 3)))
+            padding = int(ocr_config.get("digit_padding_px", 12))
+
+            gray = cv2.cvtColor(np.array(screenshot.crop(region).convert("RGB")), cv2.COLOR_RGB2GRAY)
+            gray = cv2.resize(gray, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+            _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            # Tesseract wants dark text on a light background.
+            if binary.mean() < 127:
+                binary = cv2.bitwise_not(binary)
+            binary = cv2.copyMakeBorder(
+                binary, padding, padding, padding, padding, cv2.BORDER_CONSTANT, value=255
+            )
+
+            text = pytesseract.image_to_string(
+                Image.fromarray(binary),
+                config="--psm 7 -c tessedit_char_whitelist=0123456789",
+            )
+            return re.sub(r"\D", "", text)
+        except Exception as e:
+            logging.debug(f"Digit OCR failed for region {region}: {e}")
+            return ""
+
 class EasyOcrProvider(OcrProvider):
     """OCR provider using EasyOCR for better accuracy."""
     

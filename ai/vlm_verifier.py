@@ -37,9 +37,13 @@ class VLM_Verifier:
         
         # Main VLM client (for vision/OCR tasks)
         api_key = self.config.get("api_key", "ollama")
+        # Bounded so a hung request cannot stall monitoring: the SDK default is a
+        # 10 minute timeout with 2 retries.
         self.client = openai.OpenAI(
             base_url=self.config.get("base_url", "http://localhost:11434/v1"),
             api_key=api_key,
+            timeout=float(self.settings.get("request_timeout_seconds", 20.0)),
+            max_retries=int(self.settings.get("request_max_retries", 1)),
         )
         
         # Log masked API key for debugging
@@ -415,7 +419,8 @@ class VLM_Verifier:
             if image_format.upper() == "JPEG":
                 image.save(buffer, format="JPEG", quality=quality, optimize=True)
             else:
-                image.save(buffer, format="PNG", optimize=True)
+                # No optimize=True: it is lossless either way and far slower to encode.
+                image.save(buffer, format="PNG")
             
             encoded = base64.b64encode(buffer.getvalue()).decode('utf-8')
             
@@ -602,6 +607,9 @@ class VLM_Verifier:
         """
         Single-shot comparison with direct scoring (optimized for 12B+ models).
         Uses your proven prompt format for consistent JSON responses.
+
+        Returns {} when the request or its parsing failed, so the caller can tell
+        "could not check" apart from a real score of 0.
         """
         try:
             import json
@@ -617,6 +625,9 @@ class VLM_Verifier:
                 raise ValueError("oneshot_user_prompt not configured in vlm_config.json prompts section")
             
             self.logger.debug("Using configured prompts from vlm_config.json")
+
+            is_jpeg = str(self.settings.get("image_format", "PNG")).upper() == "JPEG"
+            image_mime = "image/jpeg" if is_jpeg else "image/png"
             
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -624,7 +635,7 @@ class VLM_Verifier:
                     "role": "user",
                     "content": [
                         {"type": "text", "text": user_prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
+                        {"type": "image_url", "image_url": {"url": f"data:{image_mime};base64,{image_b64}"}}
                     ]
                 }
             ]
@@ -657,20 +668,20 @@ class VLM_Verifier:
                         self.logger.error(f"Single-shot finish_reason: {chat_completion.choices[0].finish_reason}")
                 except Exception:
                     pass
-                return self._get_default_category_scores()
+                return {}
             
             self.logger.debug(f"Single-shot raw response: {response_content}")
             
             # Validate and parse response
             if not self._validate_vlm_response(response_content, "single-shot"):
                 self.logger.error("Single-shot: Response validation failed")
-                return self._get_default_category_scores()
+                return {}
             
             # Parse JSON response
             scores = self._robust_json_parse(response_content, "single-shot")
             if not scores:
                 self.logger.error("Single-shot: Failed to parse JSON")
-                return self._get_default_category_scores()
+                return {}
             
             # Ensure all required fields are present
             default_scores = self._get_default_category_scores()
@@ -692,7 +703,7 @@ class VLM_Verifier:
             
         except Exception as e:
             self.logger.error(f"Single-shot comparison failed: {e}")
-            return self._get_default_category_scores()
+            return {}
     
     
 

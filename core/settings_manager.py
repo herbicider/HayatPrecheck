@@ -54,7 +54,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "verification_method": "local_ocr_fuzzy",
     "ocr_provider": "auto",
     "timing": {
-        "fast_polling_seconds": 0.5,
+        "fast_polling_seconds": 0.25,
         "same_prescription_wait_seconds": 10.0,
         "trigger_content_load_delay_seconds": 0.5,
         "trigger_check_interval_seconds": 1.0,
@@ -79,6 +79,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
             "; Add your custom AutoHotkey v2 actions below.\n"
             'Send "{F12}"\n'
         ),
+    },
+    "indicator": {
+        "enabled": True,
+        "corner": "top-center",
+        "show_label": True,
+        "opacity": 0.85,
+        "margin_px": 8,
     },
     "optional_fields_enabled": {
         "patient_dob": False,
@@ -107,6 +114,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
             "keyword_similarity_threshold": 90,
             "min_keyword_matches": 1,
             "lost_reset_delay_seconds": 5.0,
+            # How long an odd-looking Rx reading must stay unchanged before it
+            # is accepted as a (misread) new prescription.
+            "unconfirmed_rx_stable_seconds": 2.0,
+            "rx_unreadable_warn_seconds": 3.0,
         },
         "overlay": {
             "min_display_seconds": 3.0,

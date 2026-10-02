@@ -52,6 +52,10 @@
     "brightness_boost": 1.1,
     "max_image_tokens_total": 3072,
     "max_image_tokens_per_image": 1536,
+    "request_timeout_seconds": 20.0,
+    "request_max_retries": 1,
+    "retry_attempts": 1,
+    "retry_delay_seconds": 1.0,
     "debug_save_images": true,
     "max_tokens_cap": null,
     "_max_tokens_cap_help": "Optional safety limit for max_tokens. Set to null (no limit) or a number like 4000 to prevent excessive API costs. System will warn and cap if profile max_tokens exceeds this value."

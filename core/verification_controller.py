@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import pyautogui
 from PIL import Image, ImageFilter
 
+from core import trigger_logic
 from core.comparison_engine import ComparisonEngine
 from core.logger_config import log_rx_summary, setup_logging
 from core.ocr_provider import get_cached_ocr_provider
@@ -128,7 +129,8 @@ class VerificationController:
         Args:
             on_event: Called from the monitoring thread as on_event(kind, payload).
                 Kinds are "results" (payload: per-field verification results),
-                "clear_overlay" (payload: None) and "status" (payload: str).
+                "clear_overlay" (payload: None) and "state" (payload:
+                {"state": one of the STATE_* names, "text": description}).
                 The callback must be thread-safe and must not block -- the UI
                 marshals these onto its own thread.
         """
@@ -174,6 +176,18 @@ class VerificationController:
         self.should_stop = False
         self.skip_count_for_current_rx = 0  # Track skips for current Rx
 
+        self._last_state: Optional[Tuple[str, str]] = None
+        self._waiting_text = "Waiting for Rx"
+        # Last OCR result per region, reused while the region's pixels are unchanged.
+        self._region_ocr_cache: Dict[str, Tuple[bytes, str]] = {}
+        # Rx reading that failed validation but may still be a real, misread Rx.
+        self._unconfirmed_rx = ""
+        self._unconfirmed_tracker = trigger_logic.StableReading()
+        self._rx_verdict = ""
+        self._rx_raw_text = ""
+        self._rx_unreadable_since = 0.0
+        self._rx_unreadable_logged = 0.0
+
         # Optional OCR warm-up to avoid first-use latency
         try:
             warm_up_main = bool(startup_cfg.get("warm_up_ocr_on_start", False))
@@ -182,10 +196,18 @@ class VerificationController:
 
             if warm_up_main:
                 self._warm_up_main_ocr()
-            if warm_up_workers:
+            # The worker pool only serves the legacy per-field OCR method.
+            if warm_up_workers and self._verification_method() != "vlm_ai":
                 self._warm_up_worker_processes(max(1, workers_to_warm))
         except Exception as e:
             logging.debug(f"OCR warm-up skipped due to error: {e}")
+
+    def _verification_method(self) -> str:
+        """The configured method, honoring the legacy verification_mode key."""
+        if "verification_mode" in self.config and "verification_method" not in self.config:
+            legacy_mode = self.config.get("verification_mode", "ocr")
+            return "vlm_ai" if legacy_mode == "vlm" else "local_ocr_fuzzy"
+        return self.config.get("verification_method", "local_ocr_fuzzy")
 
     def _get_cached_vlm_verifier(self):
         """Get or create cached VLM verifier instance to avoid repeated initialization"""
@@ -287,6 +309,13 @@ class VerificationController:
         except Exception as e:
             logging.error(f"Error dispatching '{kind}' event: {e}")
 
+    def _set_state(self, state: str, text: str):
+        """Tell the UI what the monitor is doing. Emits only on change."""
+        if (state, text) == self._last_state:
+            return
+        self._last_state = (state, text)
+        self._emit("state", {"state": state, "text": text})
+
     def _show_overlay(self, results: Dict[str, Any]):
         """Ask the UI to display the score overlay."""
         self.overlay_visible = True
@@ -356,6 +385,7 @@ class VerificationController:
         automation_mode = self._get_automation_mode(automation_config)
 
         logging.info(f"SUCCESS: All fields matched! Running automation mode '{automation_mode}' in {delay_seconds}s...")
+        self._set_state("sending", f"Rx#{self.last_rx_number} matched — sending key")
         await asyncio.sleep(delay_seconds)
 
         if automation_mode == "autohotkey_v2":
@@ -498,215 +528,149 @@ class VerificationController:
 
     def _is_partial_rx_read(self, rx_number: str, reference_rx: str) -> bool:
         """Check if rx_number is likely a partial read of reference_rx due to UI shifts."""
-        if not rx_number or not reference_rx:
-            return False
-        
-        # Check if it's shorter and ends the reference Rx
-        if (len(rx_number) < len(reference_rx) and 
-            reference_rx.endswith(rx_number) and 
-            len(rx_number) >= 3):  # At least 3 digits to be considered a partial match
-            return True
-            
-        return False
-    
+        return trigger_logic.is_partial_rx_read(rx_number, reference_rx)
+
+    def _ocr_region_cached(
+        self, key: str, screenshot: Image.Image, region: tuple, read: Callable[[], str]
+    ) -> str:
+        """OCR a region, reusing the last result while its pixels are unchanged.
+
+        Tesseract is a subprocess call per read; the trigger and Rx regions are
+        read on every poll and almost never change between polls.
+        """
+        pixels = screenshot.crop(region).tobytes()
+        cached = self._region_ocr_cache.get(key)
+        if cached is not None and cached[0] == pixels:
+            return cached[1]
+        text = read()
+        self._region_ocr_cache[key] = (pixels, text)
+        return text
+
     def _extract_rx_number(self, screenshot: Image.Image) -> str:
         """Extract the Rx number from the rx_number region with validation.
 
-        Always use OCR (Tesseract preferred, EasyOCR fallback) for Rx number extraction.
-        This ensures consistency with the OCR-only trigger detection approach.
+        Always uses OCR (Tesseract preferred, EasyOCR fallback), in both
+        verification modes. Returns "" when no trustworthy number was read; a
+        plausible-but-odd reading is left in self._unconfirmed_rx for the monitor
+        loop to accept once it has held still (see _resolve_unconfirmed_rx).
         """
+        self._unconfirmed_rx = ""
+        self._rx_verdict = ""
+        self._rx_raw_text = ""
         try:
-            rx_region = self.config["regions"].get("rx_number") or self.config["regions"]["trigger"]
+            rx_region = tuple(self.config["regions"].get("rx_number") or self.config["regions"]["trigger"])
+            rx_ocr = get_cached_ocr_provider("tesseract", self.advanced_settings)
+            recent_rxs = list(self.processed_rx_times.keys())
 
-            from core.ocr_provider import get_cached_ocr_provider
-            
-            # Try Tesseract first for speed and consistency
-            try:
-                rx_ocr = get_cached_ocr_provider("tesseract", self.advanced_settings)
-                rx_text = rx_ocr.get_text_from_region(screenshot, tuple(rx_region))
-                ocr_method = "Tesseract"
-            except Exception as tesseract_error:
-                logging.debug(f"Tesseract failed for Rx extraction, trying EasyOCR: {tesseract_error}")
-                # Fallback to EasyOCR
-                rx_ocr = get_cached_ocr_provider("easyocr", self.advanced_settings)
-                rx_text = rx_ocr.get_text_from_region(screenshot, tuple(rx_region))
-                ocr_method = "EasyOCR"
-            
-            patterns = [r"rx\s*-\s*(\d+)", r"rx\s+(\d+)", r"(\d{4,})"]
-            text_lower = rx_text.lower()
-            
-            logging.debug(f"Rx extraction ({ocr_method}) - OCR text: '{rx_text}' -> '{text_lower}'")
-            
-            for i, pattern in enumerate(patterns):
-                match = re.search(pattern, text_lower)
-                if match:
-                    rx_number = match.group(1)
-                    
-                    # Validate: must be all digits
-                    if not rx_number.isdigit():
-                        logging.debug(f"Rx extraction - Pattern {i+1} matched '{rx_number}' but contains non-digits, skipping")
-                        continue
-                    
-                    # Validate: reject partial Rx numbers that are likely UI shift artifacts
-                    # Check against current session Rx
-                    if self.current_session_rx and self.current_session_rx.isdigit():
-                        if self._is_partial_rx_read(rx_number, self.current_session_rx):
-                            logging.warning(f"Rx extraction - Rejecting '{rx_number}' as partial read of current session Rx '{self.current_session_rx}' (UI shift artifact)")
-                            continue
-                        elif len(rx_number) != len(self.current_session_rx):
-                            logging.warning(f"Rx extraction - Rejecting '{rx_number}' - length ({len(rx_number)}) differs from current session Rx '{self.current_session_rx}' length ({len(self.current_session_rx)}) (UI shift artifact)")
-                            continue
-                    
-                    # Also check against recently processed Rx numbers
-                    is_partial_of_recent = False
-                    for recent_rx in self.processed_rx_times.keys():
-                        if recent_rx and self._is_partial_rx_read(rx_number, recent_rx):
-                            logging.warning(f"Rx extraction - Rejecting '{rx_number}' as partial read of recently processed Rx '{recent_rx}' (UI shift artifact)")
-                            is_partial_of_recent = True
-                            break
-                        elif recent_rx and len(rx_number) != len(recent_rx) and len(rx_number) < len(recent_rx):
-                            # Different length and shorter - likely partial read
-                            logging.warning(f"Rx extraction - Rejecting '{rx_number}' - suspiciously shorter than recent Rx '{recent_rx}' (likely UI shift artifact)")
-                            is_partial_of_recent = True
-                            break
-                    
-                    if is_partial_of_recent:
-                        continue
-                    
-                    logging.debug(f"Rx extraction ({ocr_method}) - Pattern {i+1} matched and validated: '{rx_number}'")
-                    return rx_number
-            
-            logging.debug(f"Rx extraction ({ocr_method}) - No valid patterns matched in: '{text_lower}'")
+            rx_text = self._ocr_region_cached(
+                "rx", screenshot, rx_region,
+                lambda: rx_ocr.get_text_from_region(screenshot, rx_region),
+            )
+            self._rx_raw_text = rx_text
+            rx_number, verdict = trigger_logic.parse_rx_text(rx_text, self.current_session_rx, recent_rxs)
+
+            # Second opinion from the padded digits-only read before giving up.
+            if verdict != trigger_logic.RX_OK and hasattr(rx_ocr, "read_digits"):
+                digits = self._ocr_region_cached(
+                    "rx_digits", screenshot, rx_region,
+                    lambda: rx_ocr.read_digits(screenshot, rx_region),
+                )
+                alt_number, alt_verdict = trigger_logic.parse_rx_text(digits, self.current_session_rx, recent_rxs)
+                if alt_verdict == trigger_logic.RX_OK or not rx_number:
+                    rx_number, verdict = alt_number, alt_verdict
+
+            self._rx_verdict = verdict
+            if verdict == trigger_logic.RX_OK:
+                return rx_number
+            if verdict == trigger_logic.RX_UNCONFIRMED:
+                self._unconfirmed_rx = rx_number
+            logging.debug(f"Rx extraction - no valid number in '{rx_text}' (verdict: {verdict or 'none'})")
             return ""
         except Exception as e:
             logging.error(f"Error extracting Rx number: {e}")
             return ""
 
+    def _resolve_unconfirmed_rx(self, now: float) -> str:
+        """Accept an odd Rx reading once it has stayed the same long enough.
+
+        A reading whose length does not fit the current Rx is usually a one-poll
+        artifact of the screen redrawing. But OCR also misreads real numbers, and
+        it misreads the same pixels the same way every time, so rejecting forever
+        leaves that prescription unverified. The number is only used to tell
+        prescriptions apart -- verification looks at the screen -- so a stable
+        wrong reading is still a usable identity.
+        """
+        held = self._unconfirmed_tracker.observe(self._unconfirmed_rx, now)
+        if not self._unconfirmed_rx:
+            return ""
+        required = float(self.advanced_settings.get("trigger", {}).get("unconfirmed_rx_stable_seconds", 2.0))
+        if held < required:
+            return ""
+        logging.info(
+            f"Accepting unconfirmed Rx reading '{self._unconfirmed_rx}' - unchanged for {held:.1f}s "
+            f"(current session Rx: {self.current_session_rx})"
+        )
+        self._unconfirmed_tracker.reset()
+        return self._unconfirmed_rx
+
+    def _report_unreadable_rx(self, now: float):
+        """Trigger is on screen but no Rx number could be read: say so."""
+        if self._rx_verdict == trigger_logic.RX_PARTIAL and self.current_session_rx:
+            # Tail of the Rx we just handled; the screen is still redrawing.
+            return
+        if not self._rx_unreadable_since:
+            self._rx_unreadable_since = now
+        trigger_config = self.advanced_settings.get("trigger", {})
+        warn_after = float(trigger_config.get("rx_unreadable_warn_seconds", 3.0))
+        if now - self._rx_unreadable_since < warn_after:
+            self._set_state("reading", "Reading Rx number")
+            return
+        self._set_state("unreadable", "Can't read the Rx number")
+        log_interval = float(trigger_config.get("rx_unreadable_log_interval_seconds", 10.0))
+        if now - self._rx_unreadable_logged >= log_interval:
+            self._rx_unreadable_logged = now
+            logging.info(
+                f"Trigger detected but no Rx number readable for {now - self._rx_unreadable_since:.1f}s "
+                f"(OCR text: '{self._rx_raw_text}')"
+            )
+
     def _check_trigger(self, screenshot: Image.Image) -> Tuple[bool, str]:
-        """Check if the trigger text is present using OCR-only approach.
-        
-        Both OCR and VLM verification modes use OCR for trigger detection.
-        VLM is only used for field verification, not trigger detection.
+        """Check if the trigger text is present.
+
+        Both verification modes use OCR for trigger detection; the VLM is only
+        used for field verification.
         """
         trigger_config = self.advanced_settings.get("trigger", {})
         trigger_region = tuple(self.config["regions"]["trigger"])
         keywords = trigger_config.get("keywords", ["pre", "check", "rx"])
-        
-        # Increment trigger check counter for smart logging
         self.trigger_check_count += 1
-        
-        # Always use OCR-based trigger detection first (Tesseract preferred, EasyOCR fallback)
-        ocr_trigger_detected, ocr_rx_number = self._check_trigger_with_ocr(screenshot, trigger_region, keywords, trigger_config)
-        
-        # If OCR succeeded, use it regardless of verification mode
-        if ocr_trigger_detected:
-            if ocr_rx_number:
-                logging.debug(f"Trigger detected via OCR: Rx#{ocr_rx_number}")
-            else:
-                logging.debug("Trigger detected via OCR (no Rx number)")
-            return ocr_trigger_detected, ocr_rx_number
-        
-        # If in VLM mode and OCR failed completely, try the VLM mode OCR approach
-        # (This provides a secondary OCR attempt with potentially different settings)
-        verification_method = self.config.get("verification_method", "local_ocr_fuzzy")
-        
-        # Handle legacy configuration for trigger detection
-        if "verification_mode" in self.config and "verification_method" not in self.config:
-            legacy_mode = self.config.get("verification_mode", "ocr")
-            verification_method = "vlm_ai" if legacy_mode == "vlm" else "local_ocr_fuzzy"
-        
-        if verification_method == "vlm_ai":
-            vlm_trigger_detected, vlm_rx_number = self._check_trigger_with_vlm(trigger_region, keywords)
-            if vlm_trigger_detected:
-                logging.debug(f"Trigger detected via VLM mode OCR: Rx#{vlm_rx_number or 'UNKNOWN'}")
-                return vlm_trigger_detected, vlm_rx_number
-            else:
-                # Smart logging: only log every 30 checks when no trigger found
-                if self.trigger_check_count % 30 == 0:
-                    logging.debug(f"VLM mode OCR monitoring - {self.trigger_check_count} checks completed, no triggers detected")
-        
-        # No trigger detected by any OCR method
-        return False, ""
-    
+        return self._check_trigger_with_ocr(screenshot, trigger_region, keywords, trigger_config)
+
     def _check_trigger_with_ocr(self, screenshot: Image.Image, trigger_region: tuple, keywords: list, trigger_config: dict) -> Tuple[bool, str]:
-        """Traditional OCR-based trigger detection.
+        """OCR-based trigger detection.
 
         IMPORTANT: Always attempt Tesseract first for trigger detection, regardless of the
         globally configured OCR provider, to maximize speed and stability. If Tesseract is
-        unavailable, gracefully fall back to EasyOCR via the provider cache. This ensures
-        the sequence: Tesseract -> EasyOCR -> (only then) VLM fallback handled by caller.
+        unavailable, get_cached_ocr_provider falls back to EasyOCR.
         """
         try:
-            # Force Tesseract-first provider selection for trigger text
-            # If Tesseract is not available, get_cached_ocr_provider will smart-fallback to EasyOCR
-            from core.ocr_provider import get_cached_ocr_provider
             trigger_ocr = get_cached_ocr_provider("tesseract", self.advanced_settings)
+            trigger_text = self._ocr_region_cached(
+                "trigger", screenshot, trigger_region,
+                lambda: trigger_ocr.get_text_from_region(screenshot, trigger_region),
+            )
 
-            trigger_text = trigger_ocr.get_text_from_region(screenshot, trigger_region)
-            
-            sim_threshold = trigger_config.get("keyword_similarity_threshold", 90)
-            min_matches = trigger_config.get("min_keyword_matches", 2)
-            
-            from rapidfuzz import fuzz
-            text_lower = trigger_text.lower()
-            
-            # Check for full phrase match first
-            full_phrase = " ".join(keywords)
-            if fuzz.ratio(text_lower.strip(), full_phrase.lower()) >= 80:
-                trigger_detected = True
-                rx_number = self._extract_rx_number(screenshot)
-                return trigger_detected, rx_number
-            
-            # Check individual keyword matches
-            text_words = re.split(r'[\s\-_.,;:|"\']+', text_lower)
-            text_words = [w for w in text_words if w]
-            found_count = sum(1 for kw in keywords if any(fuzz.ratio(w, kw.lower()) >= sim_threshold for w in text_words))
-            
-            trigger_detected = found_count >= min_matches
+            trigger_detected = trigger_logic.trigger_text_matches(
+                trigger_text,
+                keywords,
+                trigger_config.get("keyword_similarity_threshold", 90),
+                trigger_config.get("min_keyword_matches", 2),
+            )
             rx_number = self._extract_rx_number(screenshot) if trigger_detected else ""
-            
-            if trigger_detected:
-                logging.debug(f"OCR trigger detected - found {found_count}/{len(keywords)} keywords")
-            
             return trigger_detected, rx_number
-            
+
         except Exception as e:
             logging.warning(f"OCR trigger detection failed: {e}")
-            return False, ""
-    
-    def _check_trigger_with_vlm(self, trigger_region: tuple, keywords: list) -> Tuple[bool, str]:
-        """OCR-only trigger detection for VLM mode (no VLM fallback)
-        
-        When in VLM mode, we still use OCR for trigger detection per user requirements.
-        VLM is only used for field verification, not trigger detection.
-        """
-        try:
-            # Load VLM configuration
-            vlm_config = self._load_vlm_config()
-            if not vlm_config:
-                logging.warning("VLM trigger: No VLM configuration available, using direct OCR")
-                # Take a fresh screenshot for OCR trigger detection
-                screenshot = pyautogui.screenshot()
-                return self._check_trigger_with_ocr(screenshot, trigger_region, keywords, self.advanced_settings.get("trigger", {}))
-            
-            # Get cached VLM verifier and use OCR trigger detection
-            vlm_verifier = self._get_cached_vlm_verifier()
-            if not vlm_verifier:
-                logging.warning("VLM trigger: Failed to get VLM verifier, using direct OCR")
-                screenshot = pyautogui.screenshot()
-                return self._check_trigger_with_ocr(screenshot, trigger_region, keywords, self.advanced_settings.get("trigger", {}))
-            
-            trigger_detected, rx_number = vlm_verifier.detect_trigger_with_ocr(trigger_region, keywords)
-            
-            if trigger_detected:
-                logging.debug(f"VLM mode OCR trigger detection: trigger={trigger_detected}, rx={rx_number}")
-            else:
-                logging.debug("VLM mode OCR trigger detection: No trigger detected")
-            
-            return trigger_detected, rx_number
-            
-        except Exception as e:
-            logging.error(f"VLM mode OCR trigger detection failed: {e}")
             return False, ""
 
     async def _perform_ocr_on_all_fields(
@@ -770,25 +734,24 @@ class VerificationController:
         self,
         screenshot: Image.Image,
         ocr_results: Optional[Dict[str, Tuple[str, str]]] = None,
-    ):
-        """Run verification on all fields and show overlay."""
+    ) -> bool:
+        """Run verification on all fields and show the overlay.
+
+        Returns False when no result could be produced (e.g. the AI call failed),
+        so the caller can let this prescription be tried again.
+        """
         if self.verification_in_progress:
             logging.debug("Verification already in progress, skipping...")
-            return
+            return True
 
+        rx_label = f"Rx#{self.last_rx_number}" if self.last_rx_number else "Rx"
         try:
             self.verification_in_progress = True
             logging.info("Running field verification...")
+            self._set_state("checking", f"Checking {rx_label}")
 
-            # Check verification method (new structure)
-            verification_method = self.config.get("verification_method", "local_ocr_fuzzy")
-            
-            # Handle legacy configuration
-            if "verification_mode" in self.config and "verification_method" not in self.config:
-                legacy_mode = self.config.get("verification_mode", "ocr")
-                verification_method = "vlm_ai" if legacy_mode == "vlm" else "local_ocr_fuzzy"
-                logging.info(f"Using legacy verification_mode '{legacy_mode}' -> '{verification_method}'")
-            
+            verification_method = self._verification_method()
+
             if verification_method == "vlm_ai":
                 # Use VLM verification (direct image analysis)
                 results = await self._verify_with_vlm()
@@ -797,9 +760,14 @@ class VerificationController:
                 if ocr_results is None:
                     ocr_results = await self._perform_ocr_on_all_fields(screenshot)
                 results = self.comparison_engine.verify_fields(ocr_results)
-            
+
+            if not results:
+                logging.error(f"Verification produced no result for {rx_label}")
+                self._set_state("error", f"{rx_label} — check failed, will retry")
+                return False
+
             log_rx_summary(self.last_rx_number or "", results)
-            
+
             # Create prescription signature based on method
             if verification_method == "vlm_ai":
                 self.last_verified_signature = f"vlm_verification_{int(time.time())}"
@@ -809,25 +777,25 @@ class VerificationController:
                 self.last_verified_signature = f"verification_{int(time.time())}"
 
             matches = sum(1 for r in results.values() if r["match"])
-            if matches > 0 and matches == len(results):
+            if matches == len(results):
                 await self._handle_all_fields_matched()
+                self._set_state("match", f"{rx_label} — all {matches} fields matched")
+            else:
+                self._set_state("review", f"{rx_label} — review: {matches} of {len(results)} matched")
 
             self._show_overlay(results)
+            return True
         except Exception as e:
             logging.error(f"Error during verification: {e}")
+            self._set_state("error", f"{rx_label} — check failed, will retry")
+            return False
         finally:
             self.verification_in_progress = False
 
     async def _verify_with_vlm(self) -> Dict[str, Dict[str, Any]]:
         """Perform verification using Vision Language Model"""
         try:
-            # Load VLM configuration
-            vlm_config = self._load_vlm_config()
-            if not vlm_config:
-                logging.error("VLM: Configuration not found, falling back to empty results")
-                return {}
-            
-            # Get cached VLM verifier
+            # Get cached VLM verifier (loads and validates the VLM configuration)
             vlm_verifier = self._get_cached_vlm_verifier()
             if not vlm_verifier:
                 logging.error("VLM: Failed to get VLM verifier")
@@ -836,6 +804,19 @@ class VerificationController:
             # Run VLM verification
             logging.info("VLM: Starting vision-based verification")
             vlm_scores = vlm_verifier.verify_with_vlm()
+
+            # No scores means the call failed; all zeros almost always means the
+            # source image had not finished loading. Either way, look again.
+            retry_attempts = int(vlm_verifier.settings.get("retry_attempts", 1))
+            retry_delay = float(vlm_verifier.settings.get("retry_delay_seconds", 1.0))
+            for attempt in range(1, retry_attempts + 1):
+                if self.should_stop or (vlm_scores and any(vlm_scores.values())):
+                    break
+                reason = "all scores were 0" if vlm_scores else "the request failed"
+                logging.warning(f"VLM: {reason}, retrying in {retry_delay}s (attempt {attempt}/{retry_attempts})")
+                self._set_state("checking", f"Rx#{self.last_rx_number} — retrying check")
+                await asyncio.sleep(retry_delay)
+                vlm_scores = vlm_verifier.verify_with_vlm()
             
             # Convert VLM category scores to field-level results format for overlay
             results = {}
@@ -941,13 +922,8 @@ class VerificationController:
 
     async def async_run(self):
         """Main asynchronous monitoring loop."""
-        verification_method = self.config.get("verification_method", "local_ocr_fuzzy")
-        
-        # Handle legacy configuration
-        if "verification_mode" in self.config and "verification_method" not in self.config:
-            legacy_mode = self.config.get("verification_mode", "ocr")
-            verification_method = "vlm_ai" if legacy_mode == "vlm" else "local_ocr_fuzzy"
-        
+        verification_method = self._verification_method()
+
         trigger_keywords = self.advanced_settings.get("trigger", {}).get("keywords", ["pre", "check", "rx"])
         
         # Display appropriate monitoring message based on method
@@ -958,14 +934,15 @@ class VerificationController:
         
         method_desc = method_descriptions.get(verification_method, f"❓ Unknown method ({verification_method})")
         logging.info(f"{method_desc} monitoring active - Looking for triggers: {trigger_keywords}")
-        self._emit("status", f"Monitoring — {method_desc}")
+        self._waiting_text = f"Waiting for Rx — {method_desc}"
+        self._set_state("waiting", self._waiting_text)
 
         try:
             await self._monitor_loop()
         finally:
             self._close_overlay()
             self._shutdown_pool()
-            self._emit("status", "Stopped")
+            self._set_state("stopped", "Stopped")
             logging.info("Monitoring loop exited")
 
     async def _monitor_loop(self):
@@ -990,40 +967,34 @@ class VerificationController:
                 now = time.time()
                 if trigger_detected:
                     self.last_seen_trigger_time = now
-                    # Enhanced debug logging for trigger state tracking
+                    if current_rx_number:
+                        self._unconfirmed_tracker.reset()
+                    else:
+                        current_rx_number = self._resolve_unconfirmed_rx(now)
+                    if current_rx_number:
+                        self._rx_unreadable_since = 0.0
                     logging.debug(f"Trigger detected: Rx#{current_rx_number or 'UNKNOWN'}, recently_triggered={self.recently_triggered}, last_rx={self.last_rx_number}")
+                else:
+                    self._unconfirmed_tracker.reset()
+                    self._rx_unreadable_since = 0.0
+                    self._set_state("waiting", self._waiting_text)
 
                 # Process trigger regardless of recently_triggered state
                 if trigger_detected:
                     cooldown = float(self.config.get("timing", {}).get("same_prescription_wait_seconds", 3.0))
-                    last_time = self.processed_rx_times.get(current_rx_number, 0)
 
-                    # Robust Rx processing logic - never reprocess the same Rx in the same session
+                    # Never reprocess the same Rx while it stays on screen. Partial
+                    # and odd-length readings were already filtered by
+                    # _extract_rx_number / _resolve_unconfirmed_rx.
                     should_process = False
                     process_reason = ""
                     skip_reason = ""
                     
                     if not current_rx_number:
                         skip_reason = "no Rx number extracted"
+                        self._report_unreadable_rx(now)
                     elif current_rx_number == self.current_session_rx:
-                        # Same Rx as current session - never reprocess during continuous presence
                         skip_reason = "same as current session prescription"
-                    elif (self.current_session_rx and 
-                          self._is_partial_rx_read(current_rx_number, self.current_session_rx)):
-                        # This looks like a partial read of current session Rx (UI shift artifact)
-                        skip_reason = f"partial read of current session Rx '{self.current_session_rx}' (UI shift artifact)"
-                    elif (self.current_session_rx and 
-                          len(current_rx_number) != len(self.current_session_rx) and 
-                          len(current_rx_number) < len(self.current_session_rx)):
-                        # Different length and shorter than current session - likely UI shift
-                        skip_reason = f"shorter than current session Rx '{self.current_session_rx}' (likely UI shift artifact)"
-                    elif any(self._is_partial_rx_read(current_rx_number, processed_rx) 
-                            for processed_rx in self.processed_rx_times.keys() 
-                            if processed_rx and len(processed_rx) > len(current_rx_number)):
-                        # This looks like a partial read of a recently processed Rx
-                        matching_rx = next((rx for rx in self.processed_rx_times.keys() 
-                                          if rx and self._is_partial_rx_read(current_rx_number, rx)), "unknown")
-                        skip_reason = f"partial read of recently processed Rx '{matching_rx}' (UI shift artifact)"
                     elif current_rx_number in self.processed_rx_times:
                         # This Rx was processed before - check cooldown regardless of session state
                         time_since_processed = now - self.processed_rx_times[current_rx_number]
@@ -1033,17 +1004,15 @@ class VerificationController:
                             should_process = True
                             process_reason = f"returning after {time_since_processed:.1f}s"
                     elif self.current_session_rx is None:
-                        # First Rx we've seen in this session AND never processed before
                         should_process = True
                         process_reason = "first"
-                    elif current_rx_number != self.current_session_rx:
-                        # Different Rx from current session AND never processed before  
+                    else:
                         should_process = True
                         process_reason = "new"
                     
                     if should_process:
                         logging.info(f"Processing Rx#{current_rx_number} ({process_reason}) - State change: recently_triggered={self.recently_triggered} -> True")
-                        self._emit("status", f"Verifying Rx#{current_rx_number}")
+                        self._set_state("reading", f"Rx#{current_rx_number} — reading screen")
                         self.last_rx_number = current_rx_number
                         self.current_session_rx = current_rx_number  # Track current session
                         self.recently_triggered = True
@@ -1055,7 +1024,10 @@ class VerificationController:
                         await asyncio.sleep(delay)
                         
                         fresh_screenshot = pyautogui.screenshot()
-                        await self._verify_all_fields(fresh_screenshot)
+                        if not await self._verify_all_fields(fresh_screenshot):
+                            # Leave the session so the cooldown above lets this
+                            # prescription be tried again while it stays on screen.
+                            self.current_session_rx = None
                     else:
                         # Skip processing with smart logging
                         self.skip_count_for_current_rx += 1

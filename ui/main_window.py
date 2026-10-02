@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional
 from core.settings_manager import SettingsManager
 from ui.overlay import ScoreOverlay
 from ui.run_tab import RunTab
+from ui.status_indicator import StatusIndicator
 
 APP_TITLE = "Pharmacy Pre-Check"
 EVENT_POLL_MS = 150
@@ -56,9 +57,11 @@ class MainWindow:
         self._closing = False
 
         self.overlay = ScoreOverlay(self.root)
+        self.indicator = StatusIndicator(self.root, on_click=self._raise_window)
 
         self._build_menu()
         self._build_tabs()
+        self.apply_indicator_config()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.bind("<Control-s>", lambda e: self.save_config())
@@ -92,6 +95,7 @@ class MainWindow:
             on_stop=self.stop_monitoring,
             on_config_changed=self.mark_dirty,
             on_goto_tab=self.select_tab,
+            on_indicator_changed=self.apply_indicator_config,
         )
         self._add_tab("run", self.run_tab, "Run")
 
@@ -138,6 +142,15 @@ class MainWindow:
 
     # ------------------------------------------------------------------ config
 
+    def apply_indicator_config(self):
+        self.indicator.configure(self.config)
+
+    def _raise_window(self):
+        """Bring the main window forward (clicking the indicator does this)."""
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+
     def mark_dirty(self):
         self._dirty = True
         self.root.title(f"{APP_TITLE} *")
@@ -179,6 +192,7 @@ class MainWindow:
         self.run_tab.reload_from_config()
         self.settings.reload_from_config()
         self.legacy_tab.reload_from_config()
+        self.apply_indicator_config()
         self._dirty = False
         self.root.title(APP_TITLE)
 
@@ -280,12 +294,16 @@ class MainWindow:
             self.run_tab.show_results(rx, payload)
         elif kind == "clear_overlay":
             self.overlay.hide()
+        elif kind == "state":
+            self.indicator.set_state(payload["state"])
+            self.run_tab.set_status(payload["text"])
         elif kind == "status":
             self.run_tab.set_status(payload)
         elif kind == "finished":
             self._join_worker()
             self.run_tab.set_running(False)
             self.overlay.hide()
+            self.indicator.set_state("stopped")
 
     def _join_worker(self):
         if self._worker is not None:
@@ -317,6 +335,7 @@ class MainWindow:
             self._join_worker()
 
         self.overlay.destroy()
+        self.indicator.destroy()
         logging.info("Application closed")
         self.root.destroy()
 

@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict
 
 from core import readiness
 from core.settings_manager import config_value
+from ui.status_indicator import CORNERS
 
 METHOD_CHOICES = (
     (
@@ -44,6 +45,7 @@ class RunTab(ttk.Frame):
         on_stop: Callable[[], None],
         on_config_changed: Callable[[], None],
         on_goto_tab: Callable[[str], None],
+        on_indicator_changed: Callable[[], None] = lambda: None,
         log_file: str = "verification.log",
     ):
         super().__init__(parent, padding=12)
@@ -52,6 +54,7 @@ class RunTab(ttk.Frame):
         self._on_stop = on_stop
         self._on_config_changed = on_config_changed
         self._on_goto_tab = on_goto_tab
+        self._on_indicator_changed = on_indicator_changed
         self.log_file = log_file
 
         self._log_size = 0
@@ -66,14 +69,15 @@ class RunTab(ttk.Frame):
     def _build(self):
         self.columnconfigure(0, weight=1)
         # Only the log expands; everything above keeps its natural height.
-        self.rowconfigure(5, weight=1)
+        self.rowconfigure(6, weight=1)
 
         self._build_method(row=0)
         self._build_controls(row=1)
         self._build_readiness(row=2)
         self._build_scores(row=3)
         self._build_automation(row=4)
-        self._build_log(row=5)
+        self._build_indicator(row=5)
+        self._build_log(row=6)
 
     def _build_method(self, row: int):
         frame = ttk.LabelFrame(self, text="Verification method", padding=10)
@@ -182,6 +186,53 @@ class RunTab(ttk.Frame):
                 foreground="#a15c00",
             ).pack(side=tk.LEFT, padx=(10, 0))
 
+    def _build_indicator(self, row: int):
+        frame = ttk.LabelFrame(self, text="On-screen status indicator", padding=10)
+        frame.grid(row=row, column=0, sticky="ew", pady=(0, 10))
+
+        self.indicator_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            frame,
+            text="Show a status dot on screen",
+            variable=self.indicator_var,
+            command=self._on_indicator_change,
+        ).pack(side=tk.LEFT)
+
+        ttk.Label(frame, text="Position:").pack(side=tk.LEFT, padx=(16, 0))
+        self.indicator_corner_var = tk.StringVar()
+        corner_combo = ttk.Combobox(
+            frame,
+            textvariable=self.indicator_corner_var,
+            values=list(CORNERS),
+            width=13,
+            state="readonly",
+        )
+        corner_combo.pack(side=tk.LEFT, padx=(6, 0))
+        corner_combo.bind("<<ComboboxSelected>>", lambda e: self._on_indicator_change())
+
+        self.indicator_label_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            frame,
+            text="Show label next to the dot",
+            variable=self.indicator_label_var,
+            command=self._on_indicator_change,
+        ).pack(side=tk.LEFT, padx=(16, 0))
+
+        ttk.Label(
+            frame,
+            text="blue waiting · amber working · green match · red review · purple problem",
+            foreground="#555",
+        ).pack(side=tk.LEFT, padx=(16, 0))
+
+        self._load_indicator_vars()
+
+    def _load_indicator_vars(self):
+        self.indicator_var.set(bool(config_value(self.config_data, "indicator", "enabled")))
+        self.indicator_corner_var.set(config_value(self.config_data, "indicator", "corner"))
+        self.indicator_label_var.set(
+            bool(config_value(self.config_data, "indicator", "show_label"))
+        )
+
     def _build_log(self, row: int):
         frame = ttk.LabelFrame(self, text="Activity", padding=10)
         frame.grid(row=row, column=0, sticky="nsew")
@@ -280,6 +331,7 @@ class RunTab(ttk.Frame):
             bool(config_value(self.config_data, "automation", "send_key_on_all_match"))
         )
         self.key_var.set(config_value(self.config_data, "automation", "key_on_all_match"))
+        self._load_indicator_vars()
         self.refresh_readiness()
 
     # --------------------------------------------------------------- handlers
@@ -293,6 +345,14 @@ class RunTab(ttk.Frame):
         automation = self.config_data.setdefault("automation", {})
         automation["send_key_on_all_match"] = self.auto_var.get()
         automation["key_on_all_match"] = self.key_var.get()
+        self._on_config_changed()
+
+    def _on_indicator_change(self):
+        indicator = self.config_data.setdefault("indicator", {})
+        indicator["enabled"] = self.indicator_var.get()
+        indicator["corner"] = self.indicator_corner_var.get()
+        indicator["show_label"] = self.indicator_label_var.get()
+        self._on_indicator_changed()
         self._on_config_changed()
 
     def _goto_fix_tab(self):

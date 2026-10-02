@@ -199,8 +199,32 @@ class VlmTab(ttk.Frame):
             side=tk.LEFT, padx=(6, 0)
         )
 
+        # Shared by every profile (stored under vlm_settings).
+        reliability = ttk.Frame(frame)
+        reliability.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=(8, 0))
+
+        ttk.Label(reliability, text="Request timeout (s):").pack(side=tk.LEFT)
+        self.timeout_var = tk.StringVar()
+        ttk.Entry(reliability, textvariable=self.timeout_var, width=8).pack(
+            side=tk.LEFT, padx=(6, 18)
+        )
+
+        ttk.Label(reliability, text="Re-check attempts:").pack(side=tk.LEFT)
+        self.retry_var = tk.StringVar()
+        ttk.Entry(reliability, textvariable=self.retry_var, width=8).pack(
+            side=tk.LEFT, padx=(6, 8)
+        )
+        ttk.Label(
+            reliability,
+            text="re-checks when the request fails or every score is 0 (all profiles)",
+            foreground="#555",
+        ).pack(side=tk.LEFT)
+
+        for var in (self.timeout_var, self.retry_var):
+            var.trace_add("write", lambda *_: self._mark_dirty())
+
         hints = ttk.Frame(frame)
-        hints.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
+        hints.grid(row=6, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
         ttk.Label(hints, text="Common endpoints:", foreground="#555").pack(side=tk.LEFT)
         for label, url in COMMON_ENDPOINTS:
             ttk.Button(
@@ -288,6 +312,10 @@ class VlmTab(ttk.Frame):
         self.max_tokens_var.set(str(profile.get("max_tokens", 1500)))
         self.temp_var.set(str(profile.get("temperature", 0.1)))
 
+        vlm_settings = self.raw_config.get("vlm_settings", {})
+        self.timeout_var.set(str(vlm_settings.get("request_timeout_seconds", 20.0)))
+        self.retry_var.set(str(vlm_settings.get("retry_attempts", 1)))
+
         env_var = env_var_for_profile(name) if name else ""
         raw_key = str(profile.get("api_key", ""))
 
@@ -352,6 +380,21 @@ class VlmTab(ttk.Frame):
         except ValueError:
             messagebox.showwarning("AI settings", "Temperature must be a number.")
             return
+
+        vlm_settings = self.raw_config.setdefault("vlm_settings", {})
+        try:
+            timeout = float(self.timeout_var.get())
+            retry_attempts = int(float(self.retry_var.get()))
+            if timeout <= 0 or retry_attempts < 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showwarning(
+                "AI settings",
+                "Request timeout must be a positive number and re-check attempts 0 or more.",
+            )
+            return
+        vlm_settings["request_timeout_seconds"] = timeout
+        vlm_settings["retry_attempts"] = retry_attempts
 
         prompts = self.raw_config.setdefault("prompts", {})
         prompts["oneshot_system_prompt"] = self.system_text.get("1.0", tk.END).rstrip()

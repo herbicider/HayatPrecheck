@@ -44,6 +44,8 @@ import sys
 import shutil
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from core.settings_manager import config_value
+
 DEFAULT_AUTOHOTKEY_V2_TEMPLATE = (
     "#Requires AutoHotkey v2.0\n"
     "; Add your custom AutoHotkey v2 actions below.\n"
@@ -833,7 +835,59 @@ class SettingsGUI:
                                   command=lambda k=key: self.toggle_optional_field(k))
             check.pack(anchor=tk.W)
             self.optional_field_vars[key] = var
-    
+
+        # Detection timing
+        ttk.Separator(settings_frame, orient='horizontal').pack(fill=tk.X, pady=10)
+
+        detection_frame = ttk.Frame(settings_frame)
+        detection_frame.pack(fill=tk.X)
+
+        ttk.Label(detection_frame, text="Detection:",
+                 font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
+
+        for setting_key, label, help_text in self.DETECTION_SETTINGS:
+            row_frame = ttk.Frame(detection_frame)
+            row_frame.pack(fill=tk.X, pady=2)
+            ttk.Label(row_frame, text=label, width=26).pack(side=tk.LEFT)
+            var = tk.StringVar(value=str(config_value(self.config, *setting_key)))
+            entry = ttk.Entry(row_frame, textvariable=var, width=6)
+            entry.pack(side=tk.LEFT, padx=(5, 8))
+            entry.bind('<FocusOut>', lambda e, k=setting_key: self.update_detection_setting(k))
+            entry.bind('<Return>', lambda e, k=setting_key: self.update_detection_setting(k))
+            ttk.Label(row_frame, text=help_text, foreground="#555").pack(side=tk.LEFT)
+            self.settings_vars["detection_" + ".".join(setting_key)] = var
+
+    # (config path, label, help text)
+    DETECTION_SETTINGS = (
+        (("timing", "fast_polling_seconds"), "Screen check interval (sec):",
+         "how often the screen is checked for a new Rx"),
+        (("timing", "trigger_content_load_delay_seconds"), "Wait before checking (sec):",
+         "lets the prescription image finish loading"),
+        (("advanced_settings", "trigger", "unconfirmed_rx_stable_seconds"), "Accept odd Rx number after (sec):",
+         "an unusual Rx number reading is trusted once unchanged this long"),
+    )
+
+    def update_detection_setting(self, setting_key):
+        """Update a detection timing value in config."""
+        var = self.settings_vars["detection_" + ".".join(setting_key)]
+        current = config_value(self.config, *setting_key)
+        try:
+            new_value = float(var.get())
+            if new_value < 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Invalid Value", "Enter a non-negative number of seconds")
+            var.set(str(current))
+            return
+        if new_value == current:
+            return
+        section = self.config
+        for key in setting_key[:-1]:
+            section = section.setdefault(key, {})
+        section[setting_key[-1]] = new_value
+        self._on_dirty()
+        self.update_status(f"{setting_key[-1]} set to {new_value}s — restart monitoring to apply")
+
     def update_threshold(self, field_key):
         """Update threshold value in config."""
         if not self.config:

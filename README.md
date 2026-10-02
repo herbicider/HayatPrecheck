@@ -359,6 +359,33 @@ ollama pull qwen3-vl:8b
 4. **Review results** — green means field matched, red means review needed
 5. **Optional:** Enable automation to press a key automatically when all fields match
 
+### On-screen status indicator
+
+A small always-on-top pill shows what the app is doing, so the main window can stay minimized. Click it to bring the window back. Turn it off, move it, or hide its label on the **Run** tab (`indicator` in `config/config.json`).
+
+| Color | Meaning |
+|---|---|
+| Grey | Stopped |
+| Blue | Waiting for a prescription |
+| Amber | Working: reading the screen, waiting for the AI, or sending the key |
+| Green | All fields matched |
+| Red | Review needed |
+| Purple | Problem: the Rx number can't be read, or the AI check failed (it is retried) |
+
+Keep it clear of the trigger, Rx-number and AI screenshot regions, since it is part of the screen the app reads.
+
+### Detection and reliability settings
+
+| Setting | Default | Where | What it does |
+|---|---|---|---|
+| `timing.fast_polling_seconds` | 0.25 | Matching tab | How often the screen is checked for a new Rx |
+| `timing.trigger_content_load_delay_seconds` | 0.5 | Matching tab | Wait after a new Rx is seen, so its image can load |
+| `advanced_settings.trigger.unconfirmed_rx_stable_seconds` | 2.0 | Matching tab | An unusual Rx-number reading (wrong length) is accepted once it has stayed unchanged this long, instead of being ignored forever |
+| `advanced_settings.trigger.rx_unreadable_warn_seconds` | 3.0 | `config.json` | How long the Rx number may be unreadable before the indicator turns purple |
+| `vlm_settings.request_timeout_seconds` | 20 | AI (VLM) tab | Gives up on a hung AI request |
+| `vlm_settings.retry_attempts` | 1 | AI (VLM) tab | Re-checks when the AI request fails or every score comes back 0 |
+| `vlm_settings.retry_delay_seconds` | 1.0 | `vlm_config.json` | Pause before that re-check |
+
 ### Verification Methods
 
 **Mode 1: Traditional OCR + Fuzzy Matching (Recommended for Offline)**
